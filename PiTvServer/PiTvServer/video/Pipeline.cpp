@@ -2,6 +2,8 @@
 #include <filesystem>
 #include "Pipeline.h"
 
+const std::string Pipeline::recording_extension = "mp4";
+
 void Pipeline::handle_pipeline_message(GstMessage* msg)
 {
 	GError* err;
@@ -89,42 +91,130 @@ gchararray Pipeline::format_location_handler(GstElement* splitmux, guint fragmen
 {
 	assert(udata);
 	Pipeline* pipeline = static_cast<Pipeline*>(udata);
-	std::string recordings_path;
-	if (std::filesystem::exists(pipeline->config.recording_path))
-	{
-		recordings_path = pipeline->config.recording_path;
-	}
-	else if (pipeline->config.force_mkdirs)
-	{
-		pipeline->config.logger_ptr->warn("[format_location_handler] directory '{}' does not exist, will be created", pipeline->config.recording_path);
-		std::filesystem::create_directories(pipeline->config.recording_path);
-	}
-	else
-	{
-		pipeline->config.logger_ptr->error("[format_location_handler] directory '{}' does not exist!", pipeline->config.recording_path);
-		recordings_path = "";
-	}
 
+	std::string recording_path = pipeline->get_recording_full_path();
 	std::string time_str = get_current_date_time_str();
 
 #ifdef __cpp_lib_format
-	std::string file_name = std::format("{}[{}].mp4", time_str, fragment_id);
+	std::string file_name = std::format("{}[{}].{}", time_str, fragment_id, Pipeline::recording_extension);
 #else
 
 	std::stringstream file_name_stream;
-	file_name_stream << time_str << "[" << fragment_id << "]" << ".mp4";
+	file_name_stream << time_str << "[" << fragment_id << "]" << "." << Pipeline::recording_extension;
 	std::string file_name = file_name_stream.str();
 #endif
 
-	std::filesystem::path dir_path(recordings_path);
+	std::filesystem::path dir_path(recording_path);
 	std::filesystem::path file(file_name);
 	std::filesystem::path full_path = dir_path / file;
 	std::string path_str = full_path.string();
 
 	pipeline->config.logger_ptr->info("Recording fragment will be saved to {}", path_str);
 
+	pipeline->enforce_recording_max_size_restrictions(path_str, fragment_id);
+
 	gchar* file_path_dup = g_strdup(path_str.c_str());
 	return file_path_dup;
+}
+
+uintmax_t Pipeline::get_recording_total_size() const
+{
+	uintmax_t total_size = 0;
+
+	for (auto const& dir_entry : std::filesystem::directory_iterator{ get_recording_full_path() })
+	{
+		if (!dir_entry.is_regular_file())
+		{
+			logger()->debug("[get_recording_total_size] entry {} ignored due to not being a file", dir_entry.path().string());
+			continue;
+		}
+
+		if (dir_entry.path().extension() != "." + recording_extension)
+		{
+			logger()->debug("[get_recording_total_size] entry {} ignored due to not being a .{} video container", dir_entry.path().string(), recording_extension);
+			continue;
+		}
+
+		auto size = dir_entry.file_size();
+		logger()->debug("[get_recording_total_size] file {} size is {} Mb", dir_entry.path().string(), size / 1024 / 1024);
+		total_size += dir_entry.file_size();
+	}
+	return total_size;
+}
+
+std::filesystem::path Pipeline::get_oldest_file() const
+{
+	bool has_file = false;
+	std::filesystem::path oldest_file;
+	std::filesystem::file_time_type last_write_time;
+
+	for (auto const& dir_entry : std::filesystem::directory_iterator{ get_recording_full_path() })
+	{
+		if (!dir_entry.is_regular_file())
+		{
+			logger()->debug("[get_oldest_file] entry {} ignored due to not being a file", dir_entry.path().string());
+			continue;
+		}
+
+		if (dir_entry.path().extension() != "." + recording_extension)
+		{
+			logger()->debug("[get_oldest_file] entry {} ignored due to not being a .{} video container", dir_entry.path().string(), recording_extension);
+			continue;
+		}
+
+		auto last_write_time_tmp = dir_entry.last_write_time();
+		if (last_write_time_tmp < last_write_time || !has_file)
+		{
+			last_write_time = last_write_time_tmp;
+			oldest_file = dir_entry.path();
+			has_file = true;
+		}
+	}
+
+	return oldest_file;
+}
+
+void Pipeline::enforce_recording_max_size_restrictions(std::filesystem::path last_fragment_path, int last_fragment_index)
+{
+	if (config.recording_max_size <= 0)
+	{
+		logger()->warn("recording_max_size set to zero or a negative number! The storage will grow indefinitely untill it runs out of disk space!");
+	}
+
+	int max_iterations = 100;
+	int iteration = 0;
+
+	uintmax_t total_size = get_recording_total_size();
+	logger()->info("[enforce_recording_max_size_restrictions] total size of recordings: {} Mb", total_size / 1024 / 1024);
+
+	while(total_size >= (uintmax_t)config.recording_max_size * 1024UL * 1024UL && iteration < max_iterations)
+	{
+		std::filesystem::path oldest_file = get_oldest_file();
+		if (oldest_file.empty())
+		{
+			logger()->error("[enforce_recording_max_size_restrictions] max recording size reached, but oldest file was not found!");
+			return;
+		}
+
+		if (oldest_file == last_fragment_path)
+		{
+			logger()->error("[enforce_recording_max_size_restrictions] max recording size reached, but oldest file is the current one!");
+			return;
+		}
+
+		logger()->info("[enforce_recording_max_size_restrictions] removing the oldest file: {}", oldest_file.string());
+		std::filesystem::remove(oldest_file);
+
+		total_size = get_recording_total_size();
+		iteration++;
+	}
+
+	if (iteration >= max_iterations)
+	{
+		logger()->error("[enforce_recording_max_size_restrictions] loop exited due to max_iterations reached!");
+	}
+
+	logger()->info("[enforce_recording_max_size_restrictions] total size of recordings after cleaning: {} Mb", total_size / 1024 / 1024);
 }
 
 void Pipeline::bus_poll(int timeout_msec)
@@ -148,6 +238,33 @@ void Pipeline::bus_poll(int timeout_msec)
 	{
 		handle_pipeline_message(message);
 	}
+}
+
+bool Pipeline::set_recording_full_path()
+{
+	std::string recordings_path;
+	if (std::filesystem::exists(config.recording_path))
+	{
+		recordings_path = config.recording_path;
+	}
+	else if (config.force_mkdirs)
+	{
+		config.logger_ptr->warn("[format_location_handler] directory '{}' does not exist, will be created", config.recording_path);
+		std::filesystem::create_directories(config.recording_path);
+	}
+	else
+	{
+		config.logger_ptr->error("[format_location_handler] directory '{}' does not exist!", config.recording_path);
+		return false;
+	}
+	std::filesystem::path dir_path(recordings_path);
+	recording_full_path = dir_path.string();
+	return true;
+}
+
+std::string Pipeline::get_recording_full_path() const
+{
+	return recording_full_path;
 }
 
 GstElement* Pipeline::create_rtp_bin(std::string host, int port)
@@ -605,6 +722,12 @@ bool Pipeline::construct_pipeline()
 
 bool Pipeline::start_pipeline()
 {
+	if (!set_recording_full_path())
+	{
+		logger()->error("Cannot start pipeline because recording directory does not exist!");
+		return false;
+	}
+
 	if (!gst_pipeline)
 	{
 		logger()->error("start_pipeline() called for not contrucred pipeline!");

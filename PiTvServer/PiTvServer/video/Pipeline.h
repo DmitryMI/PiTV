@@ -18,11 +18,15 @@ struct PipelineConfig
 
 class Pipeline
 {
+public:
+	static const std::string recording_extension;
+
 private:
 	PipelineConfig config;
 	GstElement* gst_pipeline = nullptr;
 	GstBus* bus = nullptr;
 	bool is_playing = false;
+	std::string recording_full_path;
 
 	std::shared_ptr<spdlog::logger> logger() const;
 
@@ -32,6 +36,10 @@ private:
 	static const std::string get_current_date_time_str();
 	void handle_pipeline_message(GstMessage* msg);
 	static gchararray format_location_handler(GstElement* splitmux, guint fragment_id, gpointer udata);
+
+	uintmax_t get_recording_total_size() const;
+	std::filesystem::path get_oldest_file() const;
+	void enforce_recording_max_size_restrictions(std::filesystem::path last_fragment_path, int last_fragment_index);
 
 	template<typename Callable>
 	void traverse_bin_elements(GstBin* bin, int level, const Callable& callable) const
@@ -82,6 +90,9 @@ public:
 	bool pause_pipeline();
 	bool is_pipeline_running() const;
 	void bus_poll(int timeout_msec);
+
+	bool set_recording_full_path();
+	std::string get_recording_full_path() const;
 
 	GstElement* create_rtp_bin(std::string host, int port);
 	bool attach_rtp_bin(GstElement* element);
