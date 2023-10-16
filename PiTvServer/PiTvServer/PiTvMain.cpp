@@ -225,8 +225,8 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	spdlog::info("Sleeping for 5 seconds...");
-	std::this_thread::sleep_for(std::chrono::seconds(5));
+	spdlog::info("Sleeping for 10 seconds...");
+	std::this_thread::sleep_for(std::chrono::seconds(10));
 
 	GstElement* rtp_bin = pipeline.create_rtp_bin("192.168.0.2", 5000);
 	assert(rtp_bin);
