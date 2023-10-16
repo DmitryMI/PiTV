@@ -16,18 +16,13 @@ struct PipelineConfig
 	int recording_max_size = 32 * 1024;
 };
 
-struct PipelineData
-{
-	PipelineConfig config;
-	GstElement* pipeline = nullptr;
-	GstBus* bus = nullptr;
-	bool is_playing = false;
-};
-
 class Pipeline
 {
 private:
-	PipelineData pipeline_data;
+	PipelineConfig config;
+	GstElement* gst_pipeline = nullptr;
+	GstBus* bus = nullptr;
+	bool is_playing = false;
 
 	std::shared_ptr<spdlog::logger> logger() const;
 
@@ -97,14 +92,14 @@ public:
 	template<typename Callable>
 	void traverse_pipeline_elements(const Callable& callable) const
 	{
-		if (!pipeline_data.pipeline)
+		if (!gst_pipeline)
 		{
 			logger()->error("Cannot traverse not constructed pipeline!");
 			return;
 		}
 
-		callable(pipeline_data.pipeline, 0);
+		callable(gst_pipeline, 0);
 
-		traverse_bin_elements(GST_BIN(pipeline_data.pipeline), 0, callable);
+		traverse_bin_elements(GST_BIN(gst_pipeline), 0, callable);
 	}
 };

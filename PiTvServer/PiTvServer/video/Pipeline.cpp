@@ -38,7 +38,7 @@ void Pipeline::handle_pipeline_message(GstMessage* msg)
 		GstState old_state, new_state, pending_state;
 		gst_message_parse_state_changed(msg, &old_state, &new_state, &pending_state);
 
-		if (GST_MESSAGE_SRC(msg) == GST_OBJECT(pipeline_data.pipeline))
+		if (GST_MESSAGE_SRC(msg) == GST_OBJECT(gst_pipeline))
 		{
 			logger()->info("Pipeline state changed from {} to {}",
 				gst_element_state_get_name(old_state),
@@ -49,18 +49,18 @@ void Pipeline::handle_pipeline_message(GstMessage* msg)
 				GST_DEBUG_GRAPH_SHOW_MEDIA_TYPE | GST_DEBUG_GRAPH_SHOW_CAPS_DETAILS | GST_DEBUG_GRAPH_SHOW_NON_DEFAULT_PARAMS);
 			if (new_state == GST_STATE_READY)
 			{
-				GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline_data.pipeline), graph_details, "pipeline-ready");
+				GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(gst_pipeline), graph_details, "pipeline-ready");
 			}
 			else if (new_state == GST_STATE_PAUSED)
 			{
-				GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline_data.pipeline), graph_details, "pipeline-paused");
+				GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(gst_pipeline), graph_details, "pipeline-paused");
 			}
 			else if (new_state == GST_STATE_PLAYING)
 			{
-				GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline_data.pipeline), graph_details, "pipeline-playing");
+				GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(gst_pipeline), graph_details, "pipeline-playing");
 			}
 
-			pipeline_data.is_playing = (new_state == GST_STATE_PLAYING);
+			is_playing = (new_state == GST_STATE_PLAYING);
 		}
 	}
 	break;
@@ -88,20 +88,20 @@ const std::string Pipeline::get_current_date_time_str()
 gchararray Pipeline::format_location_handler(GstElement* splitmux, guint fragment_id, gpointer udata)
 {
 	assert(udata);
-	PipelineData* pipeline_data = static_cast<PipelineData*>(udata);
+	Pipeline* pipeline = static_cast<Pipeline*>(udata);
 	std::string recordings_path;
-	if (std::filesystem::exists(pipeline_data->config.recording_path))
+	if (std::filesystem::exists(pipeline->config.recording_path))
 	{
-		recordings_path = pipeline_data->config.recording_path;
+		recordings_path = pipeline->config.recording_path;
 	}
-	else if (pipeline_data->config.force_mkdirs)
+	else if (pipeline->config.force_mkdirs)
 	{
-		pipeline_data->config.logger_ptr->warn("[format_location_handler] directory '{}' does not exist, will be created", pipeline_data->config.recording_path);
-		std::filesystem::create_directories(pipeline_data->config.recording_path);
+		pipeline->config.logger_ptr->warn("[format_location_handler] directory '{}' does not exist, will be created", pipeline->config.recording_path);
+		std::filesystem::create_directories(pipeline->config.recording_path);
 	}
 	else
 	{
-		pipeline_data->config.logger_ptr->error("[format_location_handler] directory '{}' does not exist!", pipeline_data->config.recording_path);
+		pipeline->config.logger_ptr->error("[format_location_handler] directory '{}' does not exist!", pipeline->config.recording_path);
 		recordings_path = "";
 	}
 
@@ -121,7 +121,7 @@ gchararray Pipeline::format_location_handler(GstElement* splitmux, guint fragmen
 	std::filesystem::path full_path = dir_path / file;
 	std::string path_str = full_path.string();
 
-	pipeline_data->config.logger_ptr->info("Recording fragment will be saved to {}", path_str);
+	pipeline->config.logger_ptr->info("Recording fragment will be saved to {}", path_str);
 
 	gchar* file_path_dup = g_strdup(path_str.c_str());
 	return file_path_dup;
@@ -129,14 +129,14 @@ gchararray Pipeline::format_location_handler(GstElement* splitmux, guint fragmen
 
 void Pipeline::bus_poll(int timeout_msec)
 {
-	if (!pipeline_data.bus)
+	if (!bus)
 	{
 		logger()->error("Cannot poll buss, it is nullptr!");
 		return;
 	}
 
-	logger()->debug("Polling bus {} for messages", GST_ELEMENT_NAME(pipeline_data.bus));
-	GstMessage* message = gst_bus_timed_pop_filtered(pipeline_data.bus, timeout_msec * GST_MSECOND,
+	logger()->debug("Polling bus {} for messages", GST_ELEMENT_NAME(bus));
+	GstMessage* message = gst_bus_timed_pop_filtered(bus, timeout_msec * GST_MSECOND,
 		(GstMessageType)(
 			GST_MESSAGE_INFO |
 			GST_MESSAGE_WARNING |
@@ -183,38 +183,38 @@ bool Pipeline::attach_rtp_bin(GstElement* element)
 {
 	assert(element);
 
-	if (!pipeline_data.pipeline)
+	if (!gst_pipeline)
 	{
 		logger()->error("Failed to attach bin {} to not constructed pipeline!", GST_ELEMENT_NAME(element));
 		return false;
 	}
 
-	logger()->info("Trying to attach element {} to pipeline {}", GST_ELEMENT_NAME(element), GST_ELEMENT_NAME(pipeline_data.pipeline));
+	logger()->info("Trying to attach element {} to pipeline {}", GST_ELEMENT_NAME(element), GST_ELEMENT_NAME(gst_pipeline));
 
 	if (gst_element_get_parent(element))
 	{
 		logger()->error("Failed to attach bin {} to pipeline {}, because the bin already has a parent!",
 			GST_ELEMENT_NAME(element),
-			GST_ELEMENT_NAME(pipeline_data.pipeline),
+			GST_ELEMENT_NAME(gst_pipeline),
 			"subpipes_tee");
 		return false;
 	}
 
-	GstElement* tee = gst_bin_get_by_name(GST_BIN(pipeline_data.pipeline), "subpipes_tee");
+	GstElement* tee = gst_bin_get_by_name(GST_BIN(gst_pipeline), "subpipes_tee");
 	if (!tee)
 	{
 		logger()->error("Failed to attach bin {} to pipeline {}, because tee with name '{}' was not found!", 
 			GST_ELEMENT_NAME(element),
-			GST_ELEMENT_NAME(pipeline_data.pipeline),
+			GST_ELEMENT_NAME(gst_pipeline),
 			"subpipes_tee");
 		return false;
 	}
 
-	if (!gst_bin_add(GST_BIN(pipeline_data.pipeline), element))
+	if (!gst_bin_add(GST_BIN(gst_pipeline), element))
 	{
 		logger()->error("Failed to add bin {} to pipeline {}!",
 			GST_ELEMENT_NAME(element),
-			GST_ELEMENT_NAME(pipeline_data.pipeline));
+			GST_ELEMENT_NAME(gst_pipeline));
 		return false;
 	}
 
@@ -223,7 +223,7 @@ bool Pipeline::attach_rtp_bin(GstElement* element)
 		logger()->error("Failed to link bin {} to tee {}!",
 			GST_ELEMENT_NAME(element),
 			GST_ELEMENT_NAME(tee));
-		gst_bin_remove(GST_BIN(pipeline_data.pipeline), element);
+		gst_bin_remove(GST_BIN(gst_pipeline), element);
 		return false;
 	}
 
@@ -243,34 +243,34 @@ bool Pipeline::attach_rtp_bin(GstElement* element)
 	{
 		logger()->error("Failed to sync {}'s state with parent!",
 			GST_ELEMENT_NAME(element));
-		gst_bin_remove(GST_BIN(pipeline_data.pipeline), element);
+		gst_bin_remove(GST_BIN(gst_pipeline), element);
 		return false;
 	}
 	
 	std::string dot_name = std::string("pipeline-attached");
 	GstDebugGraphDetails graph_details = static_cast<GstDebugGraphDetails>(
 		GST_DEBUG_GRAPH_SHOW_MEDIA_TYPE | GST_DEBUG_GRAPH_SHOW_CAPS_DETAILS | GST_DEBUG_GRAPH_SHOW_NON_DEFAULT_PARAMS);
-	GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline_data.pipeline), graph_details, dot_name.c_str());
+	GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(gst_pipeline), graph_details, dot_name.c_str());
 
 
-	logger()->info("Bin {} was successfully attached to pipeline {}!", GST_ELEMENT_NAME(element), GST_ELEMENT_NAME(pipeline_data.pipeline));
+	logger()->info("Bin {} was successfully attached to pipeline {}!", GST_ELEMENT_NAME(element), GST_ELEMENT_NAME(gst_pipeline));
 	return true;
 }
 
 bool Pipeline::detach_rtp_bin(GstElement* bin)
 {
-	if (!pipeline_data.pipeline)
+	if (!gst_pipeline)
 	{
 		return false;
 	}
 
 	gst_object_ref(bin);
 
-	if (!gst_bin_remove(GST_BIN(pipeline_data.pipeline), bin))
+	if (!gst_bin_remove(GST_BIN(gst_pipeline), bin))
 	{
 		logger()->error("Failed to remove {} from pipeline {}!",
 			GST_ELEMENT_NAME(bin),
-			GST_ELEMENT_NAME(pipeline_data.pipeline));
+			GST_ELEMENT_NAME(gst_pipeline));
 		return false;
 	}
 
@@ -279,12 +279,12 @@ bool Pipeline::detach_rtp_bin(GstElement* bin)
 		logger()->error("Failed to set bin state to NULL!");
 	}
 
-	logger()->info("Bin {} was successfully detached from pipeline {}!", GST_ELEMENT_NAME(bin), GST_ELEMENT_NAME(pipeline_data.pipeline));
+	logger()->info("Bin {} was successfully detached from pipeline {}!", GST_ELEMENT_NAME(bin), GST_ELEMENT_NAME(gst_pipeline));
 
 	std::string dot_name = std::string("pipeline-detached");
 	GstDebugGraphDetails graph_details = static_cast<GstDebugGraphDetails>(
 		GST_DEBUG_GRAPH_SHOW_MEDIA_TYPE | GST_DEBUG_GRAPH_SHOW_CAPS_DETAILS | GST_DEBUG_GRAPH_SHOW_NON_DEFAULT_PARAMS);
-	GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline_data.pipeline), graph_details, dot_name.c_str());
+	GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(gst_pipeline), graph_details, dot_name.c_str());
 
 	gst_object_unref(bin);
 
@@ -295,28 +295,28 @@ void Pipeline::dump_pipeline_dot(std::string name) const
 {
 	GstDebugGraphDetails graph_details = static_cast<GstDebugGraphDetails>(
 		GST_DEBUG_GRAPH_SHOW_MEDIA_TYPE | GST_DEBUG_GRAPH_SHOW_CAPS_DETAILS | GST_DEBUG_GRAPH_SHOW_NON_DEFAULT_PARAMS);
-	GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline_data.pipeline), graph_details, name.c_str());
+	GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(gst_pipeline), graph_details, name.c_str());
 }
 
 Pipeline::Pipeline(const PipelineConfig& config)
 {
-	this->pipeline_data.config = config;
+	this->config = config;
 }
 
 Pipeline::~Pipeline()
 {
-	if (pipeline_data.pipeline)
+	if (gst_pipeline)
 	{
 		GstState state = GstState::GST_STATE_NULL;
-		GstStateChangeReturn state_ret = gst_element_get_state(pipeline_data.pipeline, &state, NULL, 0);
+		GstStateChangeReturn state_ret = gst_element_get_state(gst_pipeline, &state, NULL, 0);
 		if (state_ret != GstStateChangeReturn::GST_STATE_CHANGE_SUCCESS)
 		{
-			pipeline_data.config.logger_ptr->error("[~Pipeline] Failed to get pipeline's state");
+			config.logger_ptr->error("[~Pipeline] Failed to get pipeline's state");
 		}
 		else if (state != GstState::GST_STATE_NULL)
 		{
 			logger()->info("[~Pipeline] Setting pipeline to NULL state...");
-			GstStateChangeReturn ret = gst_element_set_state(pipeline_data.pipeline, GstState::GST_STATE_NULL);
+			GstStateChangeReturn ret = gst_element_set_state(gst_pipeline, GstState::GST_STATE_NULL);
 			if (ret != GstStateChangeReturn::GST_STATE_CHANGE_SUCCESS)
 			{
 				logger()->error("[~Pipeline] Failed to set pipeline to NULL state!");
@@ -327,18 +327,18 @@ Pipeline::~Pipeline()
 			}
 		}
 
-		gst_object_unref(pipeline_data.pipeline);
+		gst_object_unref(gst_pipeline);
 	}
 
-	if (pipeline_data.bus)
+	if (bus)
 	{
-		gst_object_unref(pipeline_data.bus);
+		gst_object_unref(bus);
 	}
 }
 
 std::shared_ptr<spdlog::logger> Pipeline::logger() const
 {
-	return pipeline_data.config.logger_ptr;
+	return config.logger_ptr;
 }
 
 GstElement* Pipeline::make_capturing_subpipe()
@@ -448,9 +448,9 @@ GstElement* Pipeline::make_capturing_subpipe()
 	
 
 	GstCaps* source_caps = gst_caps_new_simple("video/x-raw",
-		"width", G_TYPE_INT, pipeline_data.config.video_width,
-		"height", G_TYPE_INT, pipeline_data.config.video_height,
-		"framerate", GST_TYPE_FRACTION, pipeline_data.config.video_fps_numerator, pipeline_data.config.video_fps_denominator,
+		"width", G_TYPE_INT, config.video_width,
+		"height", G_TYPE_INT, config.video_height,
+		"framerate", GST_TYPE_FRACTION, config.video_fps_numerator, config.video_fps_denominator,
 		"format", G_TYPE_STRING, "NV12",
 		NULL);
 
@@ -511,10 +511,10 @@ GstElement* Pipeline::make_recording_subpipe()
 	}
 	gst_bin_add(GST_BIN(bin), sink);
 
-	g_object_set(sink, "max-size-time", pipeline_data.config.recording_segment_duration * GST_SECOND, NULL);
+	g_object_set(sink, "max-size-time", config.recording_segment_duration * GST_SECOND, NULL);
 	g_object_set(sink, "async-finalize", false, NULL);
 	// g_object_set(sink, "location", pipeline_data.config.recording_path, NULL);
-	g_signal_connect(sink, "format-location", G_CALLBACK(&Pipeline::format_location_handler), &pipeline_data);
+	g_signal_connect(sink, "format-location", G_CALLBACK(&Pipeline::format_location_handler), this);
 
 	GstPad* splitmuxsink_sink_pad;
 #if GST_VERSION_MAJOR >= 1 && GST_VERSION_MINOR >= 20 && 0
@@ -548,7 +548,7 @@ GstElement* Pipeline::make_recording_subpipe()
 
 bool Pipeline::construct_pipeline()
 {
-	if (pipeline_data.pipeline)
+	if (gst_pipeline)
 	{
 		return true;
 	}
@@ -596,16 +596,16 @@ bool Pipeline::construct_pipeline()
 		GST_DEBUG_GRAPH_SHOW_MEDIA_TYPE | GST_DEBUG_GRAPH_SHOW_CAPS_DETAILS | GST_DEBUG_GRAPH_SHOW_NON_DEFAULT_PARAMS);
 	GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline_tmp), graph_details, "pipeline-start");
 
-	pipeline_data.pipeline = pipeline_tmp;
-	pipeline_data.bus = gst_element_get_bus(pipeline_tmp);
-	assert(pipeline_data.bus);
+	gst_pipeline = pipeline_tmp;
+	bus = gst_element_get_bus(pipeline_tmp);
+	assert(bus);
 
 	return true;
 }
 
 bool Pipeline::start_pipeline()
 {
-	if (!pipeline_data.pipeline)
+	if (!gst_pipeline)
 	{
 		logger()->error("start_pipeline() called for not contrucred pipeline!");
 		return false;
@@ -617,7 +617,7 @@ bool Pipeline::start_pipeline()
 		return true;
 	}
 
-	GstStateChangeReturn set_state_code = gst_element_set_state(pipeline_data.pipeline, GST_STATE_PLAYING);
+	GstStateChangeReturn set_state_code = gst_element_set_state(gst_pipeline, GST_STATE_PLAYING);
 
 	if (set_state_code == GST_STATE_CHANGE_FAILURE)
 	{
@@ -632,12 +632,7 @@ bool Pipeline::start_pipeline()
 
 bool Pipeline::pause_pipeline()
 {
-	if (!pipeline_data.pipeline)
-	{
-		return false;
-	}
-
-	if (!pipeline_data.pipeline)
+	if (!gst_pipeline)
 	{
 		logger()->error("pause_pipeline() called for not contrucred pipeline!");
 		return false;
@@ -649,7 +644,7 @@ bool Pipeline::pause_pipeline()
 		return true;
 	}
 
-	GstStateChangeReturn set_state_code = gst_element_set_state(pipeline_data.pipeline, GST_STATE_PAUSED);
+	GstStateChangeReturn set_state_code = gst_element_set_state(gst_pipeline, GST_STATE_PAUSED);
 
 	if (set_state_code == GST_STATE_CHANGE_FAILURE)
 	{
@@ -663,13 +658,13 @@ bool Pipeline::pause_pipeline()
 
 bool Pipeline::is_pipeline_running() const
 {
-	if (!pipeline_data.pipeline)
+	if (!gst_pipeline)
 	{
 		return false;
 	}
 
 	GstState state;
-	GstStateChangeReturn state_ret = gst_element_get_state(pipeline_data.pipeline, &state, NULL, 3 * GST_SECOND);
+	GstStateChangeReturn state_ret = gst_element_get_state(gst_pipeline, &state, NULL, 3 * GST_SECOND);
 	if (state_ret != GstStateChangeReturn::GST_STATE_CHANGE_SUCCESS)
 	{
 		logger()->error("is_pipeline_running() could not retrieve pipeline state!");
