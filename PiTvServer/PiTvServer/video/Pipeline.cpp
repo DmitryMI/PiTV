@@ -10,14 +10,14 @@ void Pipeline::handle_pipeline_message(GstMessage* msg)
 	switch (GST_MESSAGE_TYPE(msg))
 	{
 	case GST_MESSAGE_INFO:
-		gst_message_parse_error(msg, &err, &debug_info);
+		gst_message_parse_info(msg, &err, &debug_info);
 		logger()->info("Info from {}: {}\n", GST_OBJECT_NAME(msg->src), err->message);
 		logger()->info("Debugging information: {}\n", debug_info ? debug_info : "none");
 		g_clear_error(&err);
 		g_free(debug_info);
 		break;
 	case GST_MESSAGE_WARNING:
-		gst_message_parse_error(msg, &err, &debug_info);
+		gst_message_parse_warning(msg, &err, &debug_info);
 		logger()->warn("Warning from {}: {}\n", GST_OBJECT_NAME(msg->src), err->message);
 		logger()->warn("Debugging information: {}\n", debug_info ? debug_info : "none");
 		g_clear_error(&err);
@@ -40,7 +40,7 @@ void Pipeline::handle_pipeline_message(GstMessage* msg)
 
 		if (GST_MESSAGE_SRC(msg) == GST_OBJECT(pipeline_data.pipeline))
 		{
-			logger()->info("Pipeline state changed from {} to {}:\n",
+			logger()->info("Pipeline state changed from {} to {}:",
 				gst_element_state_get_name(old_state),
 				gst_element_state_get_name(new_state)
 			);
@@ -108,7 +108,7 @@ gchararray Pipeline::format_location_handler(GstElement* splitmux, guint fragmen
 	std::string time_str = get_current_date_time_str();
 
 #ifdef __cpp_lib_format
-	std::string file_name = std::format("{}[{}].mp4", recordings_path, time_str, fragment_id);
+	std::string file_name = std::format("{}[{}].mp4", time_str, fragment_id);
 #else
 
 	std::stringstream file_name_stream;
@@ -121,21 +121,181 @@ gchararray Pipeline::format_location_handler(GstElement* splitmux, guint fragmen
 	std::filesystem::path full_path = dir_path / file;
 	std::string path_str = full_path.string();
 
+	pipeline_data->config.logger_ptr->info("Recording fragment will be saved to {}", path_str);
+
 	gchar* file_path_dup = g_strdup(path_str.c_str());
 	return file_path_dup;
 }
 
 void Pipeline::bus_poll(int timeout_msec)
 {
+	if (!pipeline_data.bus)
+	{
+		logger()->error("Cannot poll buss, it is nullptr!");
+		return;
+	}
+
+	logger()->debug("Polling bus {} for messages", GST_ELEMENT_NAME(pipeline_data.bus));
 	GstMessage* message = gst_bus_timed_pop_filtered(pipeline_data.bus, timeout_msec * GST_MSECOND,
 		(GstMessageType)(
+			GST_MESSAGE_INFO |
+			GST_MESSAGE_WARNING |
 			GST_MESSAGE_ERROR |
 			GST_MESSAGE_EOS | 
 			GST_MESSAGE_STATE_CHANGED));
+
 	if (message)
 	{
 		handle_pipeline_message(message);
 	}
+}
+
+GstElement* Pipeline::create_rtp_bin(std::string host, int port)
+{
+	std::string bin_name = std::string("rtp-bin-") + host + ":" + std::to_string(port);
+	GstElement* bin = gst_bin_new(bin_name.c_str());
+	assert(bin);
+
+	std::string rtph264pay_name = std::string("rtph264pay-") + host + ":" + std::to_string(port);
+	GstElement* rtph264pay = gst_element_factory_make("rtph264pay", rtph264pay_name.c_str());
+	assert(rtph264pay);
+
+	std::string udpsink_name = std::string("udpsink-") + host + ":" + std::to_string(port);
+	GstElement* udpsink = gst_element_factory_make("udpsink", udpsink_name.c_str());
+	assert(udpsink);
+
+	g_object_set(udpsink, "host", host.c_str(), "port", port, NULL);
+
+	gst_bin_add_many(GST_BIN(bin), rtph264pay, udpsink, NULL);
+
+	gboolean link_ok = gst_element_link(rtph264pay, udpsink);
+	assert(link_ok);
+
+	GstPad* rtph264pay_sink = gst_element_get_static_pad(rtph264pay, "sink");
+	GstPad* sink_ghost = gst_ghost_pad_new("sink", rtph264pay_sink);
+	gst_element_add_pad(bin, sink_ghost);
+	gst_object_unref(rtph264pay_sink);
+
+	return bin;
+}
+
+bool Pipeline::attach_rtp_bin(GstElement* element)
+{
+	assert(element);
+
+	if (!pipeline_data.pipeline)
+	{
+		logger()->error("Failed to attach bin {} to not constructed pipeline!", GST_ELEMENT_NAME(element));
+		return false;
+	}
+
+	logger()->info("Trying to attach element {} to pipeline {}", GST_ELEMENT_NAME(element), GST_ELEMENT_NAME(pipeline_data.pipeline));
+
+	if (gst_element_get_parent(element))
+	{
+		logger()->error("Failed to attach bin {} to pipeline {}, because the bin already has a parent!",
+			GST_ELEMENT_NAME(element),
+			GST_ELEMENT_NAME(pipeline_data.pipeline),
+			"subpipes_tee");
+		return false;
+	}
+
+	GstElement* tee = gst_bin_get_by_name(GST_BIN(pipeline_data.pipeline), "subpipes_tee");
+	if (!tee)
+	{
+		logger()->error("Failed to attach bin {} to pipeline {}, because tee with name '{}' was not found!", 
+			GST_ELEMENT_NAME(element),
+			GST_ELEMENT_NAME(pipeline_data.pipeline),
+			"subpipes_tee");
+		return false;
+	}
+
+	if (!gst_bin_add(GST_BIN(pipeline_data.pipeline), element))
+	{
+		logger()->error("Failed to add bin {} to pipeline {}!",
+			GST_ELEMENT_NAME(element),
+			GST_ELEMENT_NAME(pipeline_data.pipeline));
+		return false;
+	}
+
+	if (!gst_element_link(tee, element))
+	{
+		logger()->error("Failed to link bin {} to tee {}!",
+			GST_ELEMENT_NAME(element),
+			GST_ELEMENT_NAME(tee));
+		gst_bin_remove(GST_BIN(pipeline_data.pipeline), element);
+		return false;
+	}
+
+	logger()->info("Trying to sync {}'s state with the parent pipeline...", GST_ELEMENT_NAME(element));
+
+	/*
+	if (gst_element_set_state(element, GstState::GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE)
+	{
+		logger()->error("Failed to sync {}'s state with parent!",
+			GST_ELEMENT_NAME(element));
+		gst_bin_remove(GST_BIN(pipeline_data.pipeline), element);
+		return false;
+	}
+	*/
+
+	if (!gst_element_sync_state_with_parent(element))
+	{
+		logger()->error("Failed to sync {}'s state with parent!",
+			GST_ELEMENT_NAME(element));
+		gst_bin_remove(GST_BIN(pipeline_data.pipeline), element);
+		return false;
+	}
+	
+	std::string dot_name = std::string("pipeline-attached");
+	GstDebugGraphDetails graph_details = static_cast<GstDebugGraphDetails>(
+		GST_DEBUG_GRAPH_SHOW_MEDIA_TYPE | GST_DEBUG_GRAPH_SHOW_CAPS_DETAILS | GST_DEBUG_GRAPH_SHOW_NON_DEFAULT_PARAMS);
+	GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline_data.pipeline), graph_details, dot_name.c_str());
+
+
+	logger()->info("Bin {} was successfully attached to pipeline {}!", GST_ELEMENT_NAME(element), GST_ELEMENT_NAME(pipeline_data.pipeline));
+	return true;
+}
+
+bool Pipeline::detach_rtp_bin(GstElement* bin)
+{
+	if (!pipeline_data.pipeline)
+	{
+		return false;
+	}
+
+	gst_object_ref(bin);
+
+	if (!gst_bin_remove(GST_BIN(pipeline_data.pipeline), bin))
+	{
+		logger()->error("Failed to remove {} from pipeline {}!",
+			GST_ELEMENT_NAME(bin),
+			GST_ELEMENT_NAME(pipeline_data.pipeline));
+		return false;
+	}
+
+	if (gst_element_set_state(bin, GstState::GST_STATE_NULL) == GST_STATE_CHANGE_FAILURE)
+	{
+		logger()->error("Failed to set bin state to NULL!");
+	}
+
+	logger()->info("Bin {} was successfully detached from pipeline {}!", GST_ELEMENT_NAME(bin), GST_ELEMENT_NAME(pipeline_data.pipeline));
+
+	std::string dot_name = std::string("pipeline-detached");
+	GstDebugGraphDetails graph_details = static_cast<GstDebugGraphDetails>(
+		GST_DEBUG_GRAPH_SHOW_MEDIA_TYPE | GST_DEBUG_GRAPH_SHOW_CAPS_DETAILS | GST_DEBUG_GRAPH_SHOW_NON_DEFAULT_PARAMS);
+	GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline_data.pipeline), graph_details, dot_name.c_str());
+
+	gst_object_unref(bin);
+
+	return true;
+}
+
+void Pipeline::dump_pipeline_dot(std::string name) const
+{
+	GstDebugGraphDetails graph_details = static_cast<GstDebugGraphDetails>(
+		GST_DEBUG_GRAPH_SHOW_MEDIA_TYPE | GST_DEBUG_GRAPH_SHOW_CAPS_DETAILS | GST_DEBUG_GRAPH_SHOW_NON_DEFAULT_PARAMS);
+	GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline_data.pipeline), graph_details, name.c_str());
 }
 
 Pipeline::Pipeline(const PipelineConfig& config)
@@ -254,7 +414,8 @@ GstElement* Pipeline::make_capturing_subpipe()
 	GstElement* bin = gst_bin_new("video-source-bin");
 	assert(bin);
 
-	GstElement* source = gst_element_factory_make("mfvideosrc", "mfvideosrc");
+	// GstElement* source = gst_element_factory_make("mfvideosrc", "mfvideosrc");
+	GstElement* source = gst_element_factory_make("videotestsrc", "videotestsrc");
 	if (!source)
 	{
 		logger()->error("Failed to create source element!");
@@ -262,7 +423,9 @@ GstElement* Pipeline::make_capturing_subpipe()
 		return nullptr;
 	}
 	gst_bin_add(GST_BIN(bin), source);
+	g_object_set(source, "is-live", true, NULL);
 
+	/*
 	GstElement* encoder = gst_element_factory_make("mfh264enc", "mfh264enc");
 	if (!encoder)
 	{
@@ -270,8 +433,19 @@ GstElement* Pipeline::make_capturing_subpipe()
 		gst_object_unref(bin);
 		return nullptr;
 	}
-	gst_bin_add(GST_BIN(bin), encoder);
 	g_object_set(encoder, "low-latency", TRUE, NULL);
+	*/
+	// xh264
+	GstElement* encoder = gst_element_factory_make("x264enc", "x264enc");
+	if (!encoder)
+	{
+		logger()->error("Failed to create x264enc element!");
+		gst_object_unref(bin);
+		return nullptr;
+	}
+	g_object_set(encoder, "tune", 4, NULL);
+	gst_bin_add(GST_BIN(bin), encoder);
+	
 
 	GstCaps* source_caps = gst_caps_new_simple("video/x-raw",
 		"width", G_TYPE_INT, pipeline_data.config.video_width,
@@ -339,8 +513,8 @@ GstElement* Pipeline::make_recording_subpipe()
 
 	g_object_set(sink, "max-size-time", pipeline_data.config.recording_segment_duration * GST_SECOND, NULL);
 	g_object_set(sink, "async-finalize", false, NULL);
-	g_object_set(sink, "location", pipeline_data.config.recording_path, NULL);
-	g_signal_connect(sink, "format-location", G_CALLBACK(format_location_handler), &pipeline_data);
+	// g_object_set(sink, "location", pipeline_data.config.recording_path, NULL);
+	g_signal_connect(sink, "format-location", G_CALLBACK(&Pipeline::format_location_handler), &pipeline_data);
 
 	GstPad* splitmuxsink_sink_pad;
 #if GST_VERSION_MAJOR >= 1 && GST_VERSION_MINOR >= 20 && 0
@@ -451,7 +625,9 @@ bool Pipeline::start_pipeline()
 		return false;
 	}
 
-	logger()->info("Pipeline successfully set to PLAYING state with result code: %d", set_state_code);
+	logger()->info("Pipeline successfully set to PLAYING state with result code: {}", set_state_code);
+
+	return true;
 }
 
 bool Pipeline::pause_pipeline()
@@ -482,6 +658,7 @@ bool Pipeline::pause_pipeline()
 	}
 
 	logger()->info("Pipeline successfully set to PAUSED state with result code: %d", set_state_code);
+	return true;
 }
 
 bool Pipeline::is_pipeline_running() const

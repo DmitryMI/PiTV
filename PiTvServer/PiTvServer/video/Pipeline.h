@@ -13,7 +13,7 @@ struct PipelineConfig
 	int video_fps_numerator = 20;
 	int video_fps_denominator = 1;
 	int recording_segment_duration = 3600;
-	int recording_max_size = 32*1024;
+	int recording_max_size = 32 * 1024;
 };
 
 struct PipelineData
@@ -38,17 +38,73 @@ private:
 	void handle_pipeline_message(GstMessage* msg);
 	static gchararray format_location_handler(GstElement* splitmux, guint fragment_id, gpointer udata);
 
+	template<typename Callable>
+	void traverse_bin_elements(GstBin* bin, int level, const Callable& callable) const
+	{
+		GstIterator* bin_iterator = gst_bin_iterate_elements(bin);
+
+		GValue item = G_VALUE_INIT;
+		gboolean done = FALSE;
+		while (!done)
+		{
+			switch (gst_iterator_next(bin_iterator, &item))
+			{
+			case GST_ITERATOR_OK:
+			{
+				GstElement* element = GST_ELEMENT(g_value_get_object(&item));
+				callable(element, level);
+				if (GST_IS_BIN(element))
+				{
+					traverse_bin_elements(GST_BIN(element), level + 1, callable);
+				}
+				g_value_reset(&item);
+			}
+			break;
+			case GST_ITERATOR_RESYNC:
+				gst_iterator_resync(bin_iterator);
+				break;
+			case GST_ITERATOR_ERROR:
+				done = TRUE;
+				break;
+			case GST_ITERATOR_DONE:
+				done = TRUE;
+				break;
+			}
+		}
+		g_value_unset(&item);
+		gst_iterator_free(bin_iterator);
+	}
+
 public:
 	Pipeline(const PipelineConfig& config);
 	~Pipeline();
 	Pipeline& operator=(const Pipeline&) = delete;
 	Pipeline(const Pipeline& copy) = delete;
 	Pipeline() = default;
-	
+
 	bool construct_pipeline();
 	bool start_pipeline();
 	bool pause_pipeline();
 	bool is_pipeline_running() const;
-
 	void bus_poll(int timeout_msec);
+
+	GstElement* create_rtp_bin(std::string host, int port);
+	bool attach_rtp_bin(GstElement* element);
+	bool detach_rtp_bin(GstElement* bin);
+
+	void dump_pipeline_dot(std::string name) const;
+
+	template<typename Callable>
+	void traverse_pipeline_elements(const Callable& callable) const
+	{
+		if (!pipeline_data.pipeline)
+		{
+			logger()->error("Cannot traverse not constructed pipeline!");
+			return;
+		}
+
+		callable(pipeline_data.pipeline, 0);
+
+		traverse_bin_elements(GST_BIN(pipeline_data.pipeline), 0, callable);
+	}
 };
