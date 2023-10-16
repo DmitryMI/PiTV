@@ -268,7 +268,7 @@ int main(int argc, char** argv)
 
 	while (true)
 	{
-		pipeline.bus_poll(10);
-		server.server_poll(1000);
+		pipeline.bus_poll(1);
+		server.server_poll(1);
 	}
 }

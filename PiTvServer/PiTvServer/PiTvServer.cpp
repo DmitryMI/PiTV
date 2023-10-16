@@ -24,6 +24,20 @@ void PiTvServer::server_http_handler(mg_connection* c, int ev, void* ev_data, vo
     }
 }
 
+void PiTvServer::mongoose_log_handler(char ch, void* param)
+{
+    PiTvServer* server = static_cast<PiTvServer*>(param);
+    if (ch == '\n')
+    {
+        server->config.logger_ptr->log(server->log_level, server->mongoose_log_buffer);
+        server->mongoose_log_buffer = "";
+    }
+    else
+    {
+        server->mongoose_log_buffer += ch;
+    }
+}
+
 void PiTvServer::on_pitv_get(mg_connection* c, mg_http_message* hm)
 {
     config.logger_ptr->info("GET request on /camera URI!");
@@ -60,6 +74,37 @@ PiTvServer::PiTvServer(const PiTvServerConfig& config)
 
     mg_log_set(MG_LL_DEBUG);
     mg_mgr_init(&mongoose_event_manager);
+
+    mg_log_set_fn(&PiTvServer::mongoose_log_handler, this);
+
+    log_level = config.logger_ptr->level();
+    if (log_level == spdlog::level::off)
+    {
+        mg_log_set(0);
+    }
+    else if(log_level == spdlog::level::trace)
+    {
+        mg_log_set(4);
+    }
+    else if (log_level == spdlog::level::debug)
+    {
+        mg_log_set(3);
+    }
+    else if (log_level == spdlog::level::info || log_level == spdlog::level::warn)
+    {
+        mg_log_set(2);
+    }
+    else
+    {
+        mg_log_set(1);
+    }
+
+    // Since we cannot differentiate mg's messages, make them all at least INFO level
+    log_level = config.logger_ptr->level();
+    if (log_level < spdlog::level::level_enum::info)
+    {
+        log_level = spdlog::level::level_enum::info;
+    }
 }
 
 PiTvServer::~PiTvServer()

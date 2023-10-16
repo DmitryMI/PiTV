@@ -25,16 +25,20 @@ class PiTvServer
 private:
     mg_mgr mongoose_event_manager;
     PiTvServerConfig config;
+    std::string mongoose_log_buffer = "";
+    spdlog::level::level_enum log_level;
 
+    static void mongoose_log_handler(char ch, void* param);
     static void server_http_handler(struct mg_connection* c, int ev, void* ev_data, void* fn_data);
     static void server_https_handler(struct mg_connection* c, int ev, void* ev_data, void* fn_data);
 
     void on_index_get(mg_connection* c, mg_http_message* hm);
     void on_pitv_get(mg_connection* c, mg_http_message* hm);
+
 public:
     PiTvServer& operator=(const PiTvServer&) = delete;
     PiTvServer(const PiTvServer& copy) = delete;
-    PiTvServer() = default;
+    PiTvServer() = delete;
 
     PiTvServer(const PiTvServerConfig& config);
     ~PiTvServer();
