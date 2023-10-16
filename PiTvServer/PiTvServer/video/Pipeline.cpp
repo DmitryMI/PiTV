@@ -40,7 +40,7 @@ void Pipeline::handle_pipeline_message(GstMessage* msg)
 
 		if (GST_MESSAGE_SRC(msg) == GST_OBJECT(pipeline_data.pipeline))
 		{
-			logger()->info("Pipeline state changed from {} to {}:",
+			logger()->info("Pipeline state changed from {} to {}",
 				gst_element_state_get_name(old_state),
 				gst_element_state_get_name(new_state)
 			);

@@ -156,6 +156,34 @@ void log_pipeline_elements_state(Pipeline& pipeline)
 	spdlog::info(elements_status_builder.str());
 }
 
+void populate_listen_addresses(PiTvServerConfig& server_config, const po::variables_map& vm)
+{
+	if (vm.count("listen"))
+	{
+		std::vector<std::string> address_vector = vm["listen"].as<std::vector<std::string>>();
+		for (auto addr : address_vector)
+		{
+			if (addr.starts_with("https"))
+			{
+				server_config.https_listeners.push_back(addr);
+			}
+			else if (addr.starts_with("http"))
+			{
+				server_config.http_listeners.push_back(addr);
+			}
+			else
+			{
+				spdlog::error("Failed to bind to address {}. Protocol not supported.", addr);
+			}
+		}
+	}
+	else
+	{
+		spdlog::warn("Listening address not specified. Using default address http://0.0.0.0:5000");
+		server_config.http_listeners.push_back("http://0.0.0.0:5000");
+	}
+}
+
 int main(int argc, char** argv)
 {
 	po::options_description desc("Allowed options");
@@ -165,7 +193,7 @@ int main(int argc, char** argv)
 		("log-dir", po::value<std::string>()->default_value("logs"), "logging directory")
 		("log-level", po::value<std::string>()->default_value("INFO"), "logging level")
 		("force-mkdirs", po::value<bool>()->default_value(true), "create missing directories")
-		("listen", po::value<std::string>()->default_value("http://0.0.0.0:5000"), "add listening IP address for HTTP server")
+		("listen", po::value<std::vector<std::string>>()->multitoken(), "add listening IP address for HTTP server")
 		("camera-dev", po::value<std::string>()->default_value(""), "device to be used as video source")
 		("video-width", po::value<int>()->default_value(640), "video width")
 		("video-height", po::value<int>()->default_value(640), "video height")
@@ -211,6 +239,11 @@ int main(int argc, char** argv)
 	pipeline_config.recording_segment_duration = vm["recording-segment-duration"].as<int>();
 	pipeline_config.recording_max_size = vm["recording-max-size"].as<int>();
 
+	PiTvServerConfig server_config;
+	populate_listen_addresses(server_config, vm);
+	server_config.logger_ptr = http_logger_ptr;
+	server_config.recording_path = vm["recording-path"].as<std::string>();
+
 	Pipeline pipeline(pipeline_config);
 
 	if (!pipeline.construct_pipeline())
@@ -225,34 +258,17 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	spdlog::info("Sleeping for 10 seconds...");
-	std::this_thread::sleep_for(std::chrono::seconds(10));
+	PiTvServer server(server_config);
 
-	GstElement* rtp_bin = pipeline.create_rtp_bin("192.168.0.2", 5000);
-	assert(rtp_bin);
-	if (!pipeline.attach_rtp_bin(rtp_bin))
+	if (!server.start_server())
 	{
-		spdlog::error("Failed to attach rtp bin!");
-		return 1;
-	}
-	gst_object_unref(rtp_bin);
-
-	spdlog::info("Sleeping for 10 seconds...");
-	std::this_thread::sleep_for(std::chrono::seconds(5));
-
-	log_pipeline_elements_state(pipeline);
-	pipeline.dump_pipeline_dot("inter");
-
-	std::this_thread::sleep_for(std::chrono::seconds(5));
-
-	if (!pipeline.detach_rtp_bin(rtp_bin))
-	{
-		spdlog::error("Failed to detach rtp bin!");
+		spdlog::error("Failed to start http server!");
 		return 1;
 	}
 
 	while (true)
 	{
-		pipeline.bus_poll(1000);
+		pipeline.bus_poll(10);
+		server.server_poll(1000);
 	}
 }

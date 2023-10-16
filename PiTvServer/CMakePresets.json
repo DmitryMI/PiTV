@@ -29,7 +29,7 @@
         "CMAKE_BUILD_TYPE": "Debug"
       },
       "environment": {
-        "GST_DEBUG": "4",
+        // "GST_DEBUG": "4",
         "GST_DEBUG_DUMP_DOT_DIR": "C:\\Users\\DmitriyPC\\Downloads\\_temp",
         "SPDLOG_LEVEL": "INFO"
       }
