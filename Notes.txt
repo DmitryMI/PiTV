@@ -1,0 +1,20 @@
+Links:
+
+	How to compile OpenCV with gstreamer:
+		https://galaktyk.medium.com/how-to-build-opencv-with-gstreamer-b11668fa09c
+
+	Installing gstreamer on RPi:
+		http://imrid.net/?p=4396
+		https://qengineering.eu/install-gstreamer-1.18-on-raspberry-pi-4.html
+
+RPi gstreamer invocation
+
+Zero latency RTP streaming with Rpi Camera Module 3, HW-encoding:
+	Sender:
+	gst-launch-1.0 libcamerasrc ! video/x-raw,width=640,height=640,format=YUY2,interlace-mode=progressive ! v4l2h264enc extra-controls="encode,repeat_sequence_header=1" ! video/x-h264,stream-format=byte-stream,alignment=au,level='(string)'3.1 ! rtph264pay pt=96 ! udpsink host=192.168.0.2 port=5000
+
+	Receiver:
+	gst-launch-1.0 udpsrc port=5000 ! application/x-rtp,clock-rate=90000,payload=96 ! rtph264depay ! avdec_h264 ! autovideosink
+
+	Receiver connecing after stream start seeing nothing - FIXED WITH extra-controls="encode,repeat_sequence_header=1"
+	
