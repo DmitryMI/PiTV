@@ -56,6 +56,8 @@ private:
 
     std::map<std::string, PiTvUser> user_map;
 
+    std::string get_auth_username(mg_http_message* hm) const;
+
     static void mongoose_log_handler(char ch, void* param);
     static void server_http_handler(struct mg_connection* c, int ev, void* ev_data, void* fn_data);
     static void server_https_handler(struct mg_connection* c, int ev, void* ev_data, void* fn_data);
@@ -77,7 +79,7 @@ public:
     PiTvServer(const PiTvServer& copy) = delete;
     PiTvServer() = delete;
 
-    PiTvServer(const PiTvServerConfig& config);
+    PiTvServer(const PiTvServerConfig& config, std::shared_ptr<Pipeline> pipeline);
     ~PiTvServer();
     bool start_server();
     bool server_poll(int timeout_msec);

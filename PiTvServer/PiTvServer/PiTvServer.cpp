@@ -66,39 +66,98 @@ void PiTvServer::mongoose_log_handler(char ch, void* param)
     }
 }
 
+std::string PiTvServer::get_auth_username(mg_http_message* hm) const
+{
+    char username_c[256], pass_c[256];
+    mg_http_creds(hm, username_c, sizeof(username_c), pass_c, sizeof(pass_c));
+    
+    std::string username(username_c);
+    std::string password(pass_c);
+
+    if (username.empty() || password.empty())
+    {
+        config.logger_ptr->error("Failed to get auth user from request: username or password is empty");
+        return "";
+    }
+
+    for (auto user_entry : user_map)
+    {
+        if (user_entry.second.username == username && user_entry.second.password == password)
+        {
+            return user_entry.second.username;
+        }
+    }
+
+    config.logger_ptr->error("Failed to get auth user from request: wrong username or password");
+    return "";
+}
+
 void PiTvServer::on_pitv_request(mg_connection* c, mg_http_message* hm)
 {
     assert(hm);
 
-    std::string method(hm->method.ptr);
+    std::string method(hm->method.ptr, hm->method.len);
 
-    config.logger_ptr->info("{} request on /camera URI!", hm->method.ptr);
+    config.logger_ptr->info("{} request on /camera URI!", method);
 
-    if (method != "GET")
+    std::string auth_user = get_auth_username(hm);
+    if (auth_user.empty())
     {
-        config.logger_ptr->error("Unsupported method from {}", addr_to_str(c->rem));
-        mg_http_reply(c, 405, NULL, NULL);
+        mg_http_reply(c, 401, "", "Unauthorized");
         return;
     }
 
-    char* udp_address = mg_json_get_str(hm->body, "udp_address");
+    if (method != "POST")
+    {
+        config.logger_ptr->error("Unsupported method from {}", addr_to_str(c->rem));
+        mg_http_reply(c, 405, "", "Unsupported method");
+        return;
+    }
+
+    char* lease_guid = mg_json_get_str(hm->body, "$.lease_guid");
+    if (!lease_guid)
+    {
+        config.logger_ptr->error("lease_guid field not found in request from {}", addr_to_str(c->rem));
+        mg_http_reply(c, 400, "", "lease_guid field missing");
+        return;
+    }
+
+    char* udp_address = mg_json_get_str(hm->body, "$.udp_address");
     if (!udp_address)
     {
         config.logger_ptr->error("udp_address field not found in request from {}", addr_to_str(c->rem));
-        mg_http_reply(c, 400, NULL, NULL);
+        mg_http_reply(c, 400, "", "udp_address field missing");
         return;
     }
 
-    long udp_port = mg_json_get_long(hm->body, "udp_address", -1);
+    long udp_port = mg_json_get_long(hm->body, "$.udp_port", -1);
     if (udp_port < 0)
     {
         config.logger_ptr->error("udp_port field not found or is malformed in request from {}", addr_to_str(c->rem));
-        mg_http_reply(c, 400, NULL, NULL);
+        mg_http_reply(c, 400, "", "udp_port field missing");
         return;
     }
 
+    long lease_time = mg_json_get_long(hm->body, "$.lease_time", -1);
+    if (udp_port < 0)
+    {
+        config.logger_ptr->error("lease_time field not found or is malformed in request from {}", addr_to_str(c->rem));
+        mg_http_reply(c, 400, "", "lease_time field missing");
+        return;
+    }
 
-    mg_http_reply(c, 200, "", "{\"result\": \"%.*s\"}\n", (int)hm->uri.len, hm->uri.ptr);
+    std::string lease_guid_new = std::string(lease_guid);
+    auto result = lease_camera(lease_guid_new, auth_user, std::string(udp_address), udp_port, lease_time);
+
+    if (result.first == 200)
+    {
+        mg_http_reply(c, 200, "", "{\"guid\": \"%s\"}\n", lease_guid_new.c_str());
+    }
+    else
+    {
+        mg_http_reply(c, result.first, "", result.second.c_str());
+    }
+    
 }
 
 void PiTvServer::on_index_request(mg_connection* c, mg_http_message* hm)
@@ -139,7 +198,7 @@ std::string PiTvServer::addr_to_str(const mg_addr& addr)
     }
     for (int i = 0; i < lim; i++)
     {
-        addr_builder << addr.ip[i];
+        addr_builder << (int)addr.ip[i];
         if (i < lim - 1)
         {
             addr_builder << ".";
@@ -149,7 +208,7 @@ std::string PiTvServer::addr_to_str(const mg_addr& addr)
     return addr_builder.str();
 }
 
-PiTvServer::PiTvServer(const PiTvServerConfig& config)
+PiTvServer::PiTvServer(const PiTvServerConfig& config, std::shared_ptr<Pipeline> pipeline)
 {
     this->config = config;
 
@@ -192,6 +251,8 @@ PiTvServer::PiTvServer(const PiTvServerConfig& config)
     user.username = "defaultuser";
     user.password = "defaultpassword";
     user_map[user.username] = user;
+
+    pipeline_main_ptr = pipeline;
 }
 
 PiTvServer::~PiTvServer()
@@ -317,7 +378,7 @@ std::pair<int, std::string> PiTvServer::lease_camera(std::string& guid, std::str
 
     if (guid.empty())
     {
-        if (user.lease_map.size() > config.user_max_leases)
+        if (user.lease_map.size() >= config.user_max_leases)
         {
             config.logger_ptr->error("Lease request failed: user {} reached maximum number of leases", username);
             return { 403, "Lease limit" };

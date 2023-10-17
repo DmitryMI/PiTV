@@ -244,23 +244,23 @@ int main(int argc, char** argv)
 	server_config.logger_ptr = http_logger_ptr;
 	server_config.recording_path = vm["recording-path"].as<std::string>();
 
-	Pipeline pipeline(pipeline_config);
+	std::shared_ptr<Pipeline> pipeline = std::make_shared<Pipeline>(pipeline_config);
 
-	if (!pipeline.construct_pipeline())
+	if (!pipeline->construct_pipeline())
 	{
 		spdlog::error("Failed to construct pipeline!");
 		return 1;
 	}
 
-	if (!pipeline.start_pipeline())
+	if (!pipeline->start_pipeline())
 	{
 		spdlog::error("Failed to start pipeline!");
 		return 1;
 	}
 
-	PiTvServer server(server_config);
+	std::shared_ptr<PiTvServer> server = std::make_shared<PiTvServer>(server_config, pipeline);
 
-	if (!server.start_server())
+	if (!server->start_server())
 	{
 		spdlog::error("Failed to start http server!");
 		return 1;
@@ -268,7 +268,7 @@ int main(int argc, char** argv)
 
 	while (true)
 	{
-		pipeline.bus_poll(1);
-		server.server_poll(1);
+		pipeline->bus_poll(1);
+		server->server_poll(1);
 	}
 }
