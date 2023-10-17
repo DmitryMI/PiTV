@@ -1,5 +1,33 @@
 #include "PiTvServer.h"
 
+const int PiTvServer::guid_length = 64;
+const uint64_t PiTvServer::max_lease_time_msec = 60000;
+
+void PiTvServer::timer_fn(void* data)
+{
+    PiTvServer* server = static_cast<PiTvServer*>(data);
+    assert(server);
+
+    uint64_t current_uptime = mg_millis();
+
+    for (auto& user_entry : server->user_map)
+    {
+        std::vector<std::string> timeout_leases;
+        for (auto& lease_entry : user_entry.second.lease_map)
+        {
+            if (lease_entry.second.lease_end_time <= current_uptime)
+            {
+                server->config.logger_ptr->info("Lease {} of user {} timeout", lease_entry.second.guid, lease_entry.second.user);
+                timeout_leases.push_back(lease_entry.second.guid);
+            }
+        }
+
+        for (auto lease_guid : timeout_leases)
+        {
+            server->end_camera_lease(user_entry.second.username, lease_guid);
+        }
+    }
+}
 
 void PiTvServer::server_http_handler(mg_connection* c, int ev, void* ev_data, void* fn_data)
 {
@@ -10,11 +38,11 @@ void PiTvServer::server_http_handler(mg_connection* c, int ev, void* ev_data, vo
         mg_http_message* hm = (struct mg_http_message*)ev_data;
         if (mg_http_match_uri(hm, server->config.pitv_mount_point.c_str()))
         {
-            server->on_pitv_get(c, hm);
+            server->on_pitv_request(c, hm);
         }
         else if (mg_http_match_uri(hm, "/index.html"))
         {
-            server->on_index_get(c, hm);
+            server->on_index_request(c, hm);
         }
         else
         {
@@ -38,15 +66,45 @@ void PiTvServer::mongoose_log_handler(char ch, void* param)
     }
 }
 
-void PiTvServer::on_pitv_get(mg_connection* c, mg_http_message* hm)
+void PiTvServer::on_pitv_request(mg_connection* c, mg_http_message* hm)
 {
-    config.logger_ptr->info("GET request on /camera URI!");
+    assert(hm);
+
+    std::string method(hm->method.ptr);
+
+    config.logger_ptr->info("{} request on /camera URI!", hm->method.ptr);
+
+    if (method != "GET")
+    {
+        config.logger_ptr->error("Unsupported method from {}", addr_to_str(c->rem));
+        mg_http_reply(c, 405, NULL, NULL);
+        return;
+    }
+
+    char* udp_address = mg_json_get_str(hm->body, "udp_address");
+    if (!udp_address)
+    {
+        config.logger_ptr->error("udp_address field not found in request from {}", addr_to_str(c->rem));
+        mg_http_reply(c, 400, NULL, NULL);
+        return;
+    }
+
+    long udp_port = mg_json_get_long(hm->body, "udp_address", -1);
+    if (udp_port < 0)
+    {
+        config.logger_ptr->error("udp_port field not found or is malformed in request from {}", addr_to_str(c->rem));
+        mg_http_reply(c, 400, NULL, NULL);
+        return;
+    }
+
+
     mg_http_reply(c, 200, "", "{\"result\": \"%.*s\"}\n", (int)hm->uri.len, hm->uri.ptr);
 }
 
-void PiTvServer::on_index_get(mg_connection* c, mg_http_message* hm)
+void PiTvServer::on_index_request(mg_connection* c, mg_http_message* hm)
 {
-    config.logger_ptr->info("GET request on /index.html URI!");
+    assert(hm);
+    config.logger_ptr->info("{} request on /index.html URI!", hm->method.ptr);
     mg_http_reply(c, 200, "", "{\"result\": \"Hello World!\"}\n");
 }
 
@@ -66,6 +124,29 @@ void PiTvServer::server_https_handler(mg_connection* c, int ev, void* ev_data, v
     {
         server_http_handler(c, ev, ev_data, fn_data);
     }
+}
+
+std::string PiTvServer::addr_to_str(const mg_addr& addr)
+{
+    // TODO implement IPv6 correctly
+
+    std::stringstream addr_builder;
+
+    int lim = 4;
+    if (addr.is_ip6)
+    {
+        lim = 16;
+    }
+    for (int i = 0; i < lim; i++)
+    {
+        addr_builder << addr.ip[i];
+        if (i < lim - 1)
+        {
+            addr_builder << ".";
+        }
+    }
+    addr_builder << ":" << addr.port;
+    return addr_builder.str();
 }
 
 PiTvServer::PiTvServer(const PiTvServerConfig& config)
@@ -105,6 +186,12 @@ PiTvServer::PiTvServer(const PiTvServerConfig& config)
     {
         log_level = spdlog::level::level_enum::info;
     }
+
+    // TODO Implement user database
+    PiTvUser user;
+    user.username = "defaultuser";
+    user.password = "defaultpassword";
+    user_map[user.username] = user;
 }
 
 PiTvServer::~PiTvServer()
@@ -114,6 +201,14 @@ PiTvServer::~PiTvServer()
 
 bool PiTvServer::start_server()
 {
+    if (is_server_running)
+    {
+        config.logger_ptr->warn("start_server() called for already running server!");
+        return true;
+    }
+
+    is_server_running = true;
+
     for (auto http_addr : config.http_listeners)
     {
         mg_http_listen(&mongoose_event_manager, http_addr.c_str(), server_http_handler, this);
@@ -126,6 +221,10 @@ bool PiTvServer::start_server()
         config.logger_ptr->info("Listening on {}", https_addr);
     }
 
+    config.logger_ptr->info("Adding time function");
+
+    mg_timer_add(&mongoose_event_manager, 1000, MG_TIMER_REPEAT, timer_fn, this);
+
     return true;
 }
 
@@ -133,4 +232,148 @@ bool PiTvServer::server_poll(int timeout_msec)
 {
     mg_mgr_poll(&mongoose_event_manager, timeout_msec);
     return true;
+}
+
+std::string PiTvServer::gen_random_string(const int len)
+{
+    static const char alphanum[] =
+        "0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz";
+    std::string tmp_s;
+    tmp_s.reserve(len);
+
+    for (int i = 0; i < len; ++i)
+    {
+        tmp_s += alphanum[rand() % (sizeof(alphanum) - 1)];
+    }
+
+    return tmp_s;
+}
+
+std::pair<int, std::string> PiTvServer::end_camera_lease(std::string username, std::string guid)
+{
+    if (username.empty())
+    {
+        config.logger_ptr->error("Lease end request failed: user not specified", guid);
+        return { 401, "User not specified" };
+    }
+
+    if (user_map.count(username) == 0)
+    {
+        config.logger_ptr->error("Lease end request failed: user {} does not exist", username);
+        return { 401, "User not found" };
+    }
+
+    PiTvUser& user = user_map[username];
+
+    if (user.lease_map.count(guid) == 0)
+    {
+        config.logger_ptr->warn("Lease end request from {} tried to free non-existing lease {}", username, guid);
+        return { 200, "No lease" };
+    }
+
+    LeaseEntry entry = user.lease_map[guid];
+    user.lease_map.erase(guid);
+
+    if (!pipeline_main_ptr->detach_rtp_bin(entry.rtp_pipe))
+    {
+        config.logger_ptr->error("Lease end request from user {} failed: unable to detach RTP bin", username);
+        return { 500, "Internal server error" };
+    }
+
+    return{ 200, "OK" };
+}
+
+std::pair<int, std::string> PiTvServer::lease_camera(std::string& guid, std::string username, std::string host, int port, uint64_t lease_time_msec)
+{
+    if (!pipeline_main_ptr)
+    {
+        config.logger_ptr->error("Lease request failed: pipeline_ptr is nullptr.", guid);
+        return {500, "Internal server error" };
+    }
+
+    if (username.empty())
+    {
+        config.logger_ptr->error("Lease request failed: user not specified", guid);
+        return { 401, "User not specified" };
+    }
+
+    if (user_map.count(username) == 0)
+    {
+        config.logger_ptr->error("Lease request failed: user {} does not exist", username);
+        return { 401, "User not found" };
+    }
+
+    PiTvUser& user = user_map[username];
+
+    uint64_t current_uptime = mg_millis();
+
+    if (lease_time_msec > max_lease_time_msec)
+    {
+        config.logger_ptr->warn("Lease request has too big lease time {} msec!", lease_time_msec);
+        lease_time_msec = max_lease_time_msec;
+    }
+
+    if (guid.empty())
+    {
+        if (user.lease_map.size() > config.user_max_leases)
+        {
+            config.logger_ptr->error("Lease request failed: user {} reached maximum number of leases", username);
+            return { 403, "Lease limit" };
+        }
+
+        std::string guid_new = gen_random_string(guid_length); 
+        
+        GstElement* rtp_bin = pipeline_main_ptr->create_rtp_bin(host, port);
+        if (!rtp_bin)
+        {
+            config.logger_ptr->error("Failed to create RTP bin!");
+            return { 500, "Internal server error" };
+        }
+
+        if (!pipeline_main_ptr->attach_rtp_bin(rtp_bin))
+        {
+            config.logger_ptr->error("Failed to attach RTP bin!");
+            gst_object_unref(rtp_bin);
+            return { 500, "Internal server error" };
+        }
+
+        LeaseEntry lease_entry;
+        lease_entry.guid = guid_new;
+        lease_entry.rtp_pipe = rtp_bin;
+        lease_entry.lease_end_time = current_uptime + lease_time_msec;
+        lease_entry.udp_host = host;
+        lease_entry.udp_port = port;
+        lease_entry.user = username;
+        user.lease_map[guid_new] = lease_entry;
+
+        config.logger_ptr->info("Camera leased successfully to {}:{} with lease time {} msec, guid {} assigned!", host, port, lease_time_msec, guid_new);
+        guid = guid_new;
+        gst_object_unref(rtp_bin);
+    }
+    else
+    {
+        if (user.lease_map.count(guid) == 0)
+        {
+            config.logger_ptr->error("Lease request failed: user {} requests non-existing GUID {}", username, guid);
+            return { 400, "Non-existing GUID specified" };
+        }
+
+        LeaseEntry& lease_entry = user.lease_map[guid];
+        lease_entry.lease_end_time = current_uptime + lease_time_msec;
+        if (lease_entry.udp_host != host || lease_entry.udp_port != port)
+        {
+            config.logger_ptr->info("User {} requested endpoint change for lease {}", username, guid);
+            if (!pipeline_main_ptr->rtp_bin_change_endpoint(lease_entry.rtp_pipe, host, port))
+            {
+                config.logger_ptr->error("Endpoint change failed!");
+                return { 500, "Internal server error" };
+            }
+            lease_entry.udp_host = host;
+            lease_entry.udp_port = port;
+        }
+    }
+
+    return { 200, "OK" };
 }

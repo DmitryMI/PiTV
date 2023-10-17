@@ -1,3 +1,5 @@
+#pragma once
+
 #include <string>
 #include <gst/gst.h>
 #include <spdlog/spdlog.h>
@@ -97,6 +99,7 @@ public:
 	GstElement* create_rtp_bin(std::string host, int port);
 	bool attach_rtp_bin(GstElement* element);
 	bool detach_rtp_bin(GstElement* bin);
+	bool rtp_bin_change_endpoint(GstElement* bin, std::string host, int port);
 
 	void dump_pipeline_dot(std::string name) const;
 
@@ -113,4 +116,6 @@ public:
 
 		traverse_bin_elements(GST_BIN(gst_pipeline), 0, callable);
 	}
+
+	bool splitmux_split_after();
 };

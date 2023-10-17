@@ -277,8 +277,7 @@ GstElement* Pipeline::create_rtp_bin(std::string host, int port)
 	GstElement* rtph264pay = gst_element_factory_make("rtph264pay", rtph264pay_name.c_str());
 	assert(rtph264pay);
 
-	std::string udpsink_name = std::string("udpsink-") + host + ":" + std::to_string(port);
-	GstElement* udpsink = gst_element_factory_make("udpsink", udpsink_name.c_str());
+	GstElement* udpsink = gst_element_factory_make("udpsink", "udpsink");
 	assert(udpsink);
 
 	g_object_set(udpsink, "host", host.c_str(), "port", port, NULL);
@@ -413,6 +412,46 @@ void Pipeline::dump_pipeline_dot(std::string name) const
 	GstDebugGraphDetails graph_details = static_cast<GstDebugGraphDetails>(
 		GST_DEBUG_GRAPH_SHOW_MEDIA_TYPE | GST_DEBUG_GRAPH_SHOW_CAPS_DETAILS | GST_DEBUG_GRAPH_SHOW_NON_DEFAULT_PARAMS);
 	GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(gst_pipeline), graph_details, name.c_str());
+}
+
+bool Pipeline::rtp_bin_change_endpoint(GstElement* bin, std::string host, int port)
+{
+	if (!bin)
+	{
+		logger()->error("rtp_bin_change_endpoint() called for nullptr bin!");
+		return false;
+	}
+
+	GstElement* udp_sink = gst_bin_get_by_name(GST_BIN(bin), "udpsink");
+	if (!udp_sink)
+	{
+		logger()->error("rtp_bin_change_endpoint() did not find the udpsink!");
+		return false;
+	}
+
+	g_object_set(udp_sink, "host", host.c_str(), "port", port, NULL);
+	logger()->info("rtp_bin_change_endpoint() successfully changed udpsink's endpoint!");
+	return true;
+}
+
+bool Pipeline::splitmux_split_after()
+{
+	if (!gst_pipeline)
+	{
+		logger()->error("splitmux_split_after() called for not constructed pipeline!");
+		return false;
+	}
+
+	GstElement* splitmux = gst_bin_get_by_name(GST_BIN(gst_pipeline), "splitmuxsink");
+	if (!splitmux)
+	{
+		logger()->error("splitmux_split_after() failed to find the splitmuxsink in pipeline {}!", GST_ELEMENT_NAME(gst_pipeline));
+		return false;
+	}
+
+	g_signal_emit_by_name(splitmux, "split-after");
+	logger()->info("split-after called!");
+	return true;
 }
 
 Pipeline::Pipeline(const PipelineConfig& config)
@@ -598,7 +637,7 @@ GstElement* Pipeline::make_recording_subpipe()
 	GstElement* storing_queue = gst_element_factory_make("queue", "storing_queue");
 	if (!storing_queue)
 	{
-		GST_ERROR("Failed to create storing queue!");
+		logger()->error("Failed to create storing queue!");
 		return nullptr;
 	}
 	gst_bin_add(GST_BIN(bin), storing_queue);
@@ -606,7 +645,7 @@ GstElement* Pipeline::make_recording_subpipe()
 	GstElement* parser = gst_element_factory_make("h264parse", "h264parse");
 	if (!parser)
 	{
-		logger()->error("Failed to create splitmuxsink element!");
+		logger()->error("Failed to create h264parse element!");
 		gst_object_unref(bin);
 		return nullptr;
 	}
@@ -667,6 +706,7 @@ bool Pipeline::construct_pipeline()
 {
 	if (gst_pipeline)
 	{
+		logger()->warn("Calling construct_pipeline for an already constructed pipeline!");
 		return true;
 	}
 
@@ -730,7 +770,7 @@ bool Pipeline::start_pipeline()
 
 	if (!gst_pipeline)
 	{
-		logger()->error("start_pipeline() called for not contrucred pipeline!");
+		logger()->error("start_pipeline() called for not constructed pipeline!");
 		return false;
 	}
 
