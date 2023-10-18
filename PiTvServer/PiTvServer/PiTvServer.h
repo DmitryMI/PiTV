@@ -36,6 +36,18 @@ struct LeaseEntry
     uint64_t lease_end_time;
 };
 
+struct PiTvServerStatus
+{
+    bool temperature_cpu_ok = false;
+    double temperature_cpu = 0;
+
+    bool load_cpu_process_ok = false;
+    double load_cpu_process = 0;
+
+    bool load_cpu_total_ok = false;
+    double load_cpu_total = 0;
+};
+
 struct PiTvUser
 {
     std::string username;
@@ -46,6 +58,8 @@ class PiTvServer
 {
 private:
     bool is_server_running = false;
+    bool system_stats_ok = false;
+    bool system_stats_cpu_temp_ok = false;
 
     mg_mgr mongoose_event_manager;
     PiTvServerConfig config;
@@ -67,6 +81,7 @@ private:
 
     void on_index_request(mg_connection* c, mg_http_message* hm);
     void on_pitv_request(mg_connection* c, mg_http_message* hm);
+    void on_status_request(mg_connection* c, mg_http_message* hm) const;
 
     static std::string addr_to_str(const mg_addr& addr);
 
@@ -87,4 +102,6 @@ public:
 
     std::pair<int, std::string> lease_camera(std::string& guid, std::string username, std::string host, int port, uint64_t lease_time_msec);
     std::pair<int, std::string> end_camera_lease(std::string username, std::string guid);
+
+    PiTvServerStatus get_server_status() const;
 };

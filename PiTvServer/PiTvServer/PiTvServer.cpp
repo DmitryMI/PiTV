@@ -1,4 +1,5 @@
 #include "PiTvServer.h"
+#include "SystemStats.h"
 
 const int PiTvServer::guid_length = 64;
 const uint64_t PiTvServer::max_lease_time_msec = 60000;
@@ -43,6 +44,10 @@ void PiTvServer::server_http_handler(mg_connection* c, int ev, void* ev_data, vo
         else if (mg_http_match_uri(hm, "/index.html"))
         {
             server->on_index_request(c, hm);
+        }
+        else if (mg_http_match_uri(hm, "/status"))
+        {
+            server->on_status_request(c, hm);
         }
         else
         {
@@ -99,6 +104,30 @@ std::string PiTvServer::get_auth_username(mg_http_message* hm) const
     }
 
     return username;
+}
+
+void PiTvServer::on_status_request(mg_connection* c, mg_http_message* hm) const
+{
+    assert(hm);
+
+    std::string method(hm->method.ptr, hm->method.len);
+    config.logger_ptr->info("{} request on /status URI!", method);
+
+    PiTvServerStatus status = get_server_status();
+
+    mg_http_reply(c, 200, "Content-Type: application/json\r\n", 
+        "{"
+        "\"temp_cpu_ok\": %d,"
+        "\"temp_cpu\": %3.2f,"
+        "\"cpu_load_process_ok\": %d,"
+        "\"cpu_load_process\": %3.2f,"
+        "\"cpu_load_total_ok\": %d,"
+        "\"cpu_load_total\": %3.2f"
+        "}\n", 
+        status.temperature_cpu_ok, status.temperature_cpu,
+        status.load_cpu_process_ok, status.load_cpu_process,
+        status.load_cpu_total_ok, status.load_cpu_total
+    );
 }
 
 void PiTvServer::on_pitv_request(mg_connection* c, mg_http_message* hm)
@@ -262,6 +291,9 @@ PiTvServer::PiTvServer(const PiTvServerConfig& config, std::shared_ptr<Pipeline>
     {
         config.logger_ptr->error("Failed to get user_db!");
     }
+
+    system_stats_ok = system_stats_init();
+    system_stats_cpu_temp_ok = system_stats_has_temp_cpu();
 }
 
 PiTvServer::~PiTvServer()
@@ -438,4 +470,24 @@ std::pair<int, std::string> PiTvServer::lease_camera(std::string& guid, std::str
     }
 
     return { 200, "OK" };
+}
+
+PiTvServerStatus PiTvServer::get_server_status() const
+{
+    PiTvServerStatus status;
+    if (system_stats_ok)
+    {
+        status.load_cpu_process_ok = true;
+        status.load_cpu_total_ok = true;
+        status.load_cpu_process = system_stats_get_cpu_process();
+        status.load_cpu_total = system_stats_get_cpu_total();
+    }
+
+    if (system_stats_cpu_temp_ok)
+    {
+        status.temperature_cpu_ok = true;
+        status.temperature_cpu = system_stats_get_temp_cpu();
+    }
+
+    return status;
 }
