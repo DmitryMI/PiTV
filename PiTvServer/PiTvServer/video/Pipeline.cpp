@@ -42,7 +42,14 @@ void Pipeline::handle_pipeline_message(GstMessage* msg)
 
 		GstObject* sender = GST_MESSAGE_SRC(msg);
 
-		logger()->info("Element {} state changed from {} to {}",
+		spdlog::level::level_enum state_change_log_level = spdlog::level::info;
+
+		if (sender != GST_OBJECT(gst_pipeline))
+		{
+			state_change_log_level = spdlog::level::debug;
+		}
+
+		logger()->log(state_change_log_level, "Element {} state changed from {} to {}",
 			GST_ELEMENT_NAME(GST_ELEMENT(sender)),
 			gst_element_state_get_name(old_state),
 			gst_element_state_get_name(new_state)

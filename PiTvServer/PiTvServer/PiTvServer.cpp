@@ -80,16 +80,25 @@ std::string PiTvServer::get_auth_username(mg_http_message* hm) const
         return "";
     }
 
-    for (auto user_entry : user_map)
+    if (!user_db)
     {
-        if (user_entry.second.username == username && user_entry.second.password == password)
-        {
-            return user_entry.second.username;
-        }
+        config.logger_ptr->error("Failed to get auth user from request: user_db not constructed!");
+        return "";
+    }
+    auto user_entry = user_db->get_userdata(username);
+    if (!user_entry)
+    {
+        config.logger_ptr->error("Failed to get auth user from request: user {} not found!", username);
+        return "";
     }
 
-    config.logger_ptr->error("Failed to get auth user from request: wrong username or password");
-    return "";
+    if (user_entry->password != password)
+    {
+        config.logger_ptr->error("Failed to get auth user from request: wrong password.");
+        return "";
+    }
+
+    return username;
 }
 
 void PiTvServer::on_pitv_request(mg_connection* c, mg_http_message* hm)
@@ -176,7 +185,7 @@ void PiTvServer::server_https_handler(mg_connection* c, int ev, void* ev_data, v
         struct mg_tls_opts opts = {
             .ca = mg_str(server->config.tls_ca_str.c_str()),
             .cert = mg_str(server->config.tls_pub_str.c_str()),
-            .key = mg_str(server->config.tls_priv_str.c_str()) };
+            .key = mg_str(server->config.tls_key_str.c_str()) };
         mg_tls_init(c, &opts);
     }
     else
@@ -246,13 +255,13 @@ PiTvServer::PiTvServer(const PiTvServerConfig& config, std::shared_ptr<Pipeline>
         log_level = spdlog::level::level_enum::info;
     }
 
-    // TODO Implement user database
-    PiTvUser user;
-    user.username = "defaultuser";
-    user.password = "defaultpassword";
-    user_map[user.username] = user;
-
     pipeline_main_ptr = pipeline;
+
+    user_db = UserDb::userdb_factory(config.user_db, config.logger_ptr);
+    if (!user_db)
+    {
+        config.logger_ptr->error("Failed to get user_db!");
+    }
 }
 
 PiTvServer::~PiTvServer()
@@ -362,8 +371,10 @@ std::pair<int, std::string> PiTvServer::lease_camera(std::string& guid, std::str
 
     if (user_map.count(username) == 0)
     {
-        config.logger_ptr->error("Lease request failed: user {} does not exist", username);
-        return { 401, "User not found" };
+        PiTvUser user_new;
+        user_new.username = username;
+        user_map[username] = user_new;
+        config.logger_ptr->info("User {} was not in user map. Entry created.", username);
     }
 
     PiTvUser& user = user_map[username];

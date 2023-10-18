@@ -6,6 +6,7 @@
 #include <map>
 #include <mongoose.h>
 #include "video/Pipeline.h"
+#include "accounts/UserDb.h"
 
 
 struct PiTvServerConfig
@@ -14,7 +15,7 @@ struct PiTvServerConfig
 
     std::string tls_ca_str;
     std::string tls_pub_str;
-    std::string tls_priv_str;
+    std::string tls_key_str;
 
     std::vector<std::string> http_listeners;
     std::vector<std::string> https_listeners;
@@ -22,7 +23,8 @@ struct PiTvServerConfig
     std::string pitv_mount_point = "/camera";
     std::string recording_path;
 
-    int user_max_leases = 2;
+    std::string user_db;
+    int user_max_leases = 1;
 };
 
 struct LeaseEntry
@@ -37,7 +39,6 @@ struct LeaseEntry
 struct PiTvUser
 {
     std::string username;
-    std::string password;
     std::map<std::string, LeaseEntry> lease_map;
 };
 
@@ -53,6 +54,7 @@ private:
 
     std::shared_ptr<Pipeline> pipeline_main_ptr;
 
+    std::shared_ptr<UserDb> user_db;
     std::map<std::string, PiTvUser> user_map;
 
     std::string get_auth_username(mg_http_message* hm) const;

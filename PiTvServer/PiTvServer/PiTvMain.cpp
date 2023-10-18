@@ -142,6 +142,10 @@ int main(int argc, char** argv)
 
 	desc.add_options()
 		("help", "produce help message")
+		("user-db", po::value<std::string>()->default_value("usernames.txt"), "Path to CSV file in format username,password,role")
+		("tls-ca", po::value<std::string>()->default_value("ca.crt"), "Path to CA for TLS support")
+		("tls-pub", po::value<std::string>()->default_value("server.crt"), "Path to server public key for TLS support")
+		("tls-key", po::value<std::string>()->default_value("server.key"), "Path to server private key for TLS support")
 		("log-dir", po::value<std::string>()->default_value("logs"), "logging directory")
 		("log-level", po::value<std::string>()->default_value("INFO"), "logging level")
 		("force-mkdirs", po::value<bool>()->default_value(true), "create missing directories")
@@ -195,6 +199,10 @@ int main(int argc, char** argv)
 	populate_listen_addresses(server_config, vm);
 	server_config.logger_ptr = http_logger_ptr;
 	server_config.recording_path = vm["recording-path"].as<std::string>();
+	server_config.user_db = vm["user-db"].as<std::string>();
+	server_config.tls_ca_str = vm["tls-ca"].as<std::string>();
+	server_config.tls_pub_str = vm["tls-pub"].as<std::string>();
+	server_config.tls_key_str = vm["tls-key"].as<std::string>();
 
 	std::shared_ptr<Pipeline> pipeline = std::make_shared<Pipeline>(pipeline_config);
 
