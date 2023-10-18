@@ -31,7 +31,6 @@ struct LeaseEntry
     std::string user;
     std::string udp_host;
     int udp_port;
-    GstElement* rtp_pipe;
     uint64_t lease_end_time;
 };
 

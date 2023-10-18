@@ -34,6 +34,7 @@ private:
 
 	GstElement* make_capturing_subpipe();
 	GstElement* make_recording_subpipe();
+	GstElement* make_streaming_subpipe();
 
 	static const std::string get_current_date_time_str();
 	void handle_pipeline_message(GstMessage* msg);
@@ -96,6 +97,9 @@ private:
 		return result;
 	}
 
+	bool attach_rtp_bin(GstElement* element);
+	bool detach_rtp_bin(GstElement* bin);
+
 public:
 	Pipeline(const PipelineConfig& config);
 	~Pipeline();
@@ -112,10 +116,9 @@ public:
 	bool set_recording_full_path();
 	std::string get_recording_full_path() const;
 
-	GstElement* create_rtp_bin(std::string host, int port);
-	bool attach_rtp_bin(GstElement* element);
-	bool detach_rtp_bin(GstElement* bin);
-	bool rtp_bin_change_endpoint(GstElement* bin, std::string host, int port);
+	bool rtp_add_endpoint(std::string host, int port);
+	bool rtp_remove_endpoint(std::string host, int port);
+	bool rtp_change_endpoint(std::string host_old, int port_old, std::string host, int port);
 
 	void dump_pipeline_dot(std::string name) const;
 

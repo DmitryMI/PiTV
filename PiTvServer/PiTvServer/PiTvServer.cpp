@@ -337,7 +337,7 @@ std::pair<int, std::string> PiTvServer::end_camera_lease(std::string username, s
     LeaseEntry entry = user.lease_map[guid];
     user.lease_map.erase(guid);
 
-    if (!pipeline_main_ptr->detach_rtp_bin(entry.rtp_pipe))
+    if (!pipeline_main_ptr->rtp_remove_endpoint(entry.udp_host, entry.udp_port))
     {
         config.logger_ptr->error("Lease end request from user {} failed: unable to detach RTP bin", username);
         return { 500, "Internal server error" };
@@ -386,23 +386,14 @@ std::pair<int, std::string> PiTvServer::lease_camera(std::string& guid, std::str
 
         std::string guid_new = gen_random_string(guid_length); 
         
-        GstElement* rtp_bin = pipeline_main_ptr->create_rtp_bin(host, port);
-        if (!rtp_bin)
+        if (!pipeline_main_ptr->rtp_add_endpoint(host, port))
         {
             config.logger_ptr->error("Failed to create RTP bin!");
             return { 500, "Internal server error" };
         }
 
-        if (!pipeline_main_ptr->attach_rtp_bin(rtp_bin))
-        {
-            config.logger_ptr->error("Failed to attach RTP bin!");
-            gst_object_unref(rtp_bin);
-            return { 500, "Internal server error" };
-        }
-
         LeaseEntry lease_entry;
         lease_entry.guid = guid_new;
-        lease_entry.rtp_pipe = rtp_bin;
         lease_entry.lease_end_time = current_uptime + lease_time_msec;
         lease_entry.udp_host = host;
         lease_entry.udp_port = port;
@@ -425,7 +416,7 @@ std::pair<int, std::string> PiTvServer::lease_camera(std::string& guid, std::str
         if (lease_entry.udp_host != host || lease_entry.udp_port != port)
         {
             config.logger_ptr->info("User {} requested endpoint change for lease {}", username, guid);
-            if (!pipeline_main_ptr->rtp_bin_change_endpoint(lease_entry.rtp_pipe, host, port))
+            if (!pipeline_main_ptr->rtp_change_endpoint(lease_entry.udp_host, lease_entry.udp_port, host, port))
             {
                 config.logger_ptr->error("Endpoint change failed!");
                 return { 500, "Internal server error" };

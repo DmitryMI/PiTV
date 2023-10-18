@@ -272,24 +272,22 @@ std::string Pipeline::get_recording_full_path() const
 	return recording_full_path;
 }
 
-GstElement* Pipeline::create_rtp_bin(std::string host, int port)
+GstElement* Pipeline::make_streaming_subpipe()
 {
-	std::string bin_name = std::string("rtp-bin-") + host + ":" + std::to_string(port);
+	std::string bin_name = std::string("rtp-bin");
 	GstElement* bin = gst_bin_new(bin_name.c_str());
 	assert(bin);
 
-	std::string rtph264pay_name = std::string("rtph264pay-") + host + ":" + std::to_string(port);
+	std::string rtph264pay_name = std::string("rtph264pay");
 	GstElement* rtph264pay = gst_element_factory_make("rtph264pay", rtph264pay_name.c_str());
 	assert(rtph264pay);
 
-	GstElement* udpsink = gst_element_factory_make("udpsink", NULL);
-	assert(udpsink);
+	GstElement* multiudpsink = gst_element_factory_make("multiudpsink", "multiudpsink");
+	assert(multiudpsink);
 
-	g_object_set(udpsink, "host", host.c_str(), "port", port, NULL);
+	gst_bin_add_many(GST_BIN(bin), rtph264pay, multiudpsink, NULL);
 
-	gst_bin_add_many(GST_BIN(bin), rtph264pay, udpsink, NULL);
-
-	gboolean link_ok = gst_element_link(rtph264pay, udpsink);
+	gboolean link_ok = gst_element_link(rtph264pay, multiudpsink);
 	assert(link_ok);
 
 	GstPad* rtph264pay_sink = gst_element_get_static_pad(rtph264pay, "sink");
@@ -349,34 +347,6 @@ bool Pipeline::attach_rtp_bin(GstElement* element)
 	}
 
 	logger()->info("Trying to sync {}'s state with the parent pipeline...", GST_ELEMENT_NAME(element));
-
-	/*
-	GstState pipeline_state;
-	GstState pipeline_state_pending;
-	if (gst_element_get_state(gst_pipeline, &pipeline_state, &pipeline_state_pending, 1000) != GstStateChangeReturn::GST_STATE_CHANGE_SUCCESS)
-	{
-		logger()->error("Failed to get pipeline state!");
-		gst_bin_remove(GST_BIN(gst_pipeline), element);
-		return false;
-	}
-
-	if (pipeline_state == GST_STATE_PLAYING || pipeline_state_pending == GST_STATE_PLAYING)
-	{
-		if (gst_element_set_state(element, GstState::GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE)
-		{
-			logger()->error("Failed to sync {}'s state with parent!",
-				GST_ELEMENT_NAME(element));
-			gst_bin_remove(GST_BIN(element), element);
-			return false;
-		}
-
-		traverse_bin_elements(GST_BIN(element), 0, [](GstElement* child, int level) {gst_element_set_state(child, GST_STATE_PLAYING); });
-	}
-	else
-	{
-		logger()->warn("Pipeline not playing, will not sink state!");
-	}
-	*/
 	
 	if (!gst_element_sync_state_with_parent(element))
 	{
@@ -393,7 +363,6 @@ bool Pipeline::attach_rtp_bin(GstElement* element)
 		gst_bin_remove(GST_BIN(gst_pipeline), element);
 		return false;
 	}
-	
 	
 	std::string dot_name = std::string("pipeline-attached");
 	GstDebugGraphDetails graph_details = static_cast<GstDebugGraphDetails>(
@@ -451,29 +420,51 @@ void Pipeline::dump_pipeline_dot(std::string name) const
 	GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(gst_pipeline), graph_details, name.c_str());
 }
 
-bool Pipeline::rtp_bin_change_endpoint(GstElement* bin, std::string host, int port)
+bool Pipeline::rtp_add_endpoint(std::string host, int port)
 {
-	if (!bin)
+	if (!gst_pipeline)
 	{
-		logger()->error("rtp_bin_change_endpoint() called for nullptr bin!");
+		logger()->error("rtp_add_endpoint() called for not constructed pipeline!");
 		return false;
 	}
 
-	// GstElement* udp_sink = gst_bin_get_by_name(GST_BIN(bin), "udpsink");
-	GstElement* udp_sink = find_bin_child(GST_BIN(bin), [](GstElement* element)
-		{
-			return std::string(GST_ELEMENT_NAME(element)).starts_with("udpsink");
-		}
-	);
-
-	if (!udp_sink)
+	GstElement* multiudpsink = gst_bin_get_by_name(GST_BIN(gst_pipeline), "multiudpsink");
+	if (!multiudpsink)
 	{
-		logger()->error("rtp_bin_change_endpoint() did not find the udpsink!");
+		logger()->error("rtp_add_endpoint() failed to find multiudpsink!");
 		return false;
 	}
 
-	g_object_set(udp_sink, "host", host.c_str(), "port", port, NULL);
-	logger()->info("rtp_bin_change_endpoint() successfully changed udpsink's endpoint!");
+	g_signal_emit_by_name(multiudpsink, "add", host.c_str(), port);
+	logger()->info("Signal sent to add {}:{} endpoint to the RTP subpipe", host, port);
+	return true;
+}
+
+bool Pipeline::rtp_remove_endpoint(std::string host, int port)
+{
+	if (!gst_pipeline)
+	{
+		logger()->error("rtp_remove_endpoint() called for not constructed pipeline!");
+		return false;
+	}
+
+	GstElement* multiudpsink = gst_bin_get_by_name(GST_BIN(gst_pipeline), "multiudpsink");
+	if (!multiudpsink)
+	{
+		logger()->error("rtp_add_endpoint() failed to find multiudpsink!");
+		return false;
+	}
+
+	g_signal_emit_by_name(multiudpsink, "remove", host.c_str(), port);
+
+	logger()->info("Signal sent to remove {}:{} endpoint from the RTP subpipe", host, port);
+	return true;
+}
+
+bool Pipeline::rtp_change_endpoint(std::string host_old, int port_old, std::string host, int port)
+{
+	rtp_add_endpoint(host, port);
+	rtp_remove_endpoint(host_old, port_old);
 	return true;
 }
 
@@ -789,6 +780,24 @@ bool Pipeline::construct_pipeline()
 	{
 		logger()->error("Failed to link pipeline elements!");
 		gst_object_unref(pipeline_tmp);
+		return false;
+	}
+
+	GstElement* rtp_bin = make_streaming_subpipe();
+	if (!rtp_bin)
+	{
+		logger()->error("Failed to create rtp_bin!");
+		gst_object_unref(pipeline_tmp);
+		return false;
+	}
+	gst_bin_add(GST_BIN(pipeline_tmp), rtp_bin);
+
+	if (!gst_element_link(subpipes_tee, rtp_bin))
+	{
+		logger()->error("Failed to link bin {} to tee {}!",
+			GST_ELEMENT_NAME(rtp_bin),
+			GST_ELEMENT_NAME(subpipes_tee));
+		gst_bin_remove(GST_BIN(gst_pipeline), rtp_bin);
 		return false;
 	}
 
