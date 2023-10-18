@@ -40,13 +40,18 @@ void Pipeline::handle_pipeline_message(GstMessage* msg)
 		GstState old_state, new_state, pending_state;
 		gst_message_parse_state_changed(msg, &old_state, &new_state, &pending_state);
 
+		GstObject* sender = GST_MESSAGE_SRC(msg);
+
+		logger()->info("Element {} state changed from {} to {}",
+			GST_ELEMENT_NAME(GST_ELEMENT(sender)),
+			gst_element_state_get_name(old_state),
+			gst_element_state_get_name(new_state)
+		);
+
+		log_pipeline_elements_state();
+
 		if (GST_MESSAGE_SRC(msg) == GST_OBJECT(gst_pipeline))
 		{
-			logger()->info("Pipeline state changed from {} to {}",
-				gst_element_state_get_name(old_state),
-				gst_element_state_get_name(new_state)
-			);
-
 			GstDebugGraphDetails graph_details = static_cast<GstDebugGraphDetails>(
 				GST_DEBUG_GRAPH_SHOW_MEDIA_TYPE | GST_DEBUG_GRAPH_SHOW_CAPS_DETAILS | GST_DEBUG_GRAPH_SHOW_NON_DEFAULT_PARAMS);
 			if (new_state == GST_STATE_READY)
@@ -277,7 +282,7 @@ GstElement* Pipeline::create_rtp_bin(std::string host, int port)
 	GstElement* rtph264pay = gst_element_factory_make("rtph264pay", rtph264pay_name.c_str());
 	assert(rtph264pay);
 
-	GstElement* udpsink = gst_element_factory_make("udpsink", "udpsink");
+	GstElement* udpsink = gst_element_factory_make("udpsink", NULL);
 	assert(udpsink);
 
 	g_object_set(udpsink, "host", host.c_str(), "port", port, NULL);
@@ -346,15 +351,33 @@ bool Pipeline::attach_rtp_bin(GstElement* element)
 	logger()->info("Trying to sync {}'s state with the parent pipeline...", GST_ELEMENT_NAME(element));
 
 	/*
-	if (gst_element_set_state(element, GstState::GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE)
+	GstState pipeline_state;
+	GstState pipeline_state_pending;
+	if (gst_element_get_state(gst_pipeline, &pipeline_state, &pipeline_state_pending, 1000) != GstStateChangeReturn::GST_STATE_CHANGE_SUCCESS)
 	{
-		logger()->error("Failed to sync {}'s state with parent!",
-			GST_ELEMENT_NAME(element));
-		gst_bin_remove(GST_BIN(pipeline_data.pipeline), element);
+		logger()->error("Failed to get pipeline state!");
+		gst_bin_remove(GST_BIN(gst_pipeline), element);
 		return false;
 	}
-	*/
 
+	if (pipeline_state == GST_STATE_PLAYING || pipeline_state_pending == GST_STATE_PLAYING)
+	{
+		if (gst_element_set_state(element, GstState::GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE)
+		{
+			logger()->error("Failed to sync {}'s state with parent!",
+				GST_ELEMENT_NAME(element));
+			gst_bin_remove(GST_BIN(element), element);
+			return false;
+		}
+
+		traverse_bin_elements(GST_BIN(element), 0, [](GstElement* child, int level) {gst_element_set_state(child, GST_STATE_PLAYING); });
+	}
+	else
+	{
+		logger()->warn("Pipeline not playing, will not sink state!");
+	}
+	*/
+	
 	if (!gst_element_sync_state_with_parent(element))
 	{
 		logger()->error("Failed to sync {}'s state with parent!",
@@ -362,6 +385,15 @@ bool Pipeline::attach_rtp_bin(GstElement* element)
 		gst_bin_remove(GST_BIN(gst_pipeline), element);
 		return false;
 	}
+
+	if (!gst_bin_sync_children_states(GST_BIN(element)))
+	{
+		logger()->error("Failed to sync {}'s children states!",
+			GST_ELEMENT_NAME(element));
+		gst_bin_remove(GST_BIN(gst_pipeline), element);
+		return false;
+	}
+	
 	
 	std::string dot_name = std::string("pipeline-attached");
 	GstDebugGraphDetails graph_details = static_cast<GstDebugGraphDetails>(
@@ -380,8 +412,6 @@ bool Pipeline::detach_rtp_bin(GstElement* bin)
 		return false;
 	}
 
-	gst_object_ref(bin);
-
 	if (!gst_bin_remove(GST_BIN(gst_pipeline), bin))
 	{
 		logger()->error("Failed to remove {} from pipeline {}!",
@@ -393,6 +423,13 @@ bool Pipeline::detach_rtp_bin(GstElement* bin)
 	if (gst_element_set_state(bin, GstState::GST_STATE_NULL) == GST_STATE_CHANGE_FAILURE)
 	{
 		logger()->error("Failed to set bin state to NULL!");
+	}
+
+	if (!gst_bin_sync_children_states(GST_BIN(bin)))
+	{
+		logger()->error("Failed to sync {}'s children states!",
+			GST_ELEMENT_NAME(bin));
+		return false;
 	}
 
 	logger()->info("Bin {} was successfully detached from pipeline {}!", GST_ELEMENT_NAME(bin), GST_ELEMENT_NAME(gst_pipeline));
@@ -422,7 +459,13 @@ bool Pipeline::rtp_bin_change_endpoint(GstElement* bin, std::string host, int po
 		return false;
 	}
 
-	GstElement* udp_sink = gst_bin_get_by_name(GST_BIN(bin), "udpsink");
+	// GstElement* udp_sink = gst_bin_get_by_name(GST_BIN(bin), "udpsink");
+	GstElement* udp_sink = find_bin_child(GST_BIN(bin), [](GstElement* element)
+		{
+			return std::string(GST_ELEMENT_NAME(element)).starts_with("udpsink");
+		}
+	);
+
 	if (!udp_sink)
 	{
 		logger()->error("rtp_bin_change_endpoint() did not find the udpsink!");
@@ -834,4 +877,58 @@ bool Pipeline::is_pipeline_running() const
 		return false;
 	}
 	return state == GstState::GST_STATE_PLAYING;
+}
+
+void Pipeline::print_pipeline_elements_state(GstElement* element, int indent_level, std::stringstream* msg_builder)
+{
+	std::stringstream message;
+	for (int i = 0; i < indent_level; i++)
+	{
+		message << "\t";
+	}
+
+	if (!element)
+	{
+		spdlog::error("Element was nullptr!");
+		message << "NULL";
+		return;
+	}
+
+	message << GST_ELEMENT_NAME(element);
+
+	GstState state_actual;
+	GstState state_pending;
+
+	if (!gst_element_get_state(element, &state_actual, &state_pending, 10 * GST_MSECOND))
+	{
+		message << " [failed to get state]";
+		return;
+	}
+
+	message << ": " << gst_element_state_get_name(state_actual);
+	if (state_pending != GST_STATE_VOID_PENDING)
+	{
+		message << " -> " << gst_element_state_get_name(state_pending);
+	}
+
+	//spdlog::info(message.str());
+	(*msg_builder) << message.str() << std::endl;
+}
+
+void Pipeline::log_pipeline_elements_state() const
+{
+	if (logger()->level() < spdlog::level::debug)
+	{
+		return;
+	}
+
+	std::stringstream elements_status_builder;
+	traverse_pipeline_elements(
+		[&elements_status_builder](GstElement* element, int level)
+		{
+			print_pipeline_elements_state(element, level, &elements_status_builder);
+		}
+	);
+	
+	logger()->debug(elements_status_builder.str());
 }

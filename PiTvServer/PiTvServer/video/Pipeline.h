@@ -80,6 +80,22 @@ private:
 		gst_iterator_free(bin_iterator);
 	}
 
+	template<typename Filter>
+	GstElement* find_bin_child(GstBin* bin, const Filter& filter)
+	{
+		GstElement* result = nullptr;
+		traverse_bin_elements(bin, 0, [&result, filter](GstElement* element, int level)
+			{
+				if (filter(element))
+				{
+					result = element;
+				}
+			}
+		);
+
+		return result;
+	}
+
 public:
 	Pipeline(const PipelineConfig& config);
 	~Pipeline();
@@ -118,4 +134,8 @@ public:
 	}
 
 	bool splitmux_split_after();
+
+	static void print_pipeline_elements_state(GstElement* element, int indent_level, std::stringstream* msg_builder);
+
+	void log_pipeline_elements_state() const;
 };

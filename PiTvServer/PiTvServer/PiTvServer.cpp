@@ -411,7 +411,6 @@ std::pair<int, std::string> PiTvServer::lease_camera(std::string& guid, std::str
 
         config.logger_ptr->info("Camera leased successfully to {}:{} with lease time {} msec, guid {} assigned!", host, port, lease_time_msec, guid_new);
         guid = guid_new;
-        gst_object_unref(rtp_bin);
     }
     else
     {

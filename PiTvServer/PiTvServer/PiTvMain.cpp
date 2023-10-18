@@ -108,54 +108,6 @@ bool setup_logging(std::string dir_name, std::string level, bool force_mkdirs, s
 	return true;
 }
 
-void print_pipeline_elements_state(GstElement* element, int indent_level, std::stringstream* msg_builder)
-{
-	std::stringstream message;
-	for (int i = 0; i < indent_level; i++)
-	{
-		message << "\t";
-	}
-
-	if (!element)
-	{
-		spdlog::error("Element was nullptr!");
-		message << "NULL";
-		return;
-	}
-
-	message << GST_ELEMENT_NAME(element);
-
-	GstState state_actual;
-	GstState state_pending;
-
-	if (!gst_element_get_state(element, &state_actual, &state_pending, 10 * GST_MSECOND))
-	{
-		message << " [failed to get state]";
-		return;
-	}
-
-	message << ": " << gst_element_state_get_name(state_actual);
-	if (state_pending != GST_STATE_VOID_PENDING)
-	{
-		message << " -> " << gst_element_state_get_name(state_pending);
-	}
-
-	//spdlog::info(message.str());
-	(*msg_builder) << message.str() << std::endl;
-}
-
-void log_pipeline_elements_state(Pipeline& pipeline)
-{
-	std::stringstream elements_status_builder;
-	pipeline.traverse_pipeline_elements(
-		[&elements_status_builder](GstElement* element, int level)
-		{
-			print_pipeline_elements_state(element, level, &elements_status_builder);
-		}
-	);
-	spdlog::info(elements_status_builder.str());
-}
-
 void populate_listen_addresses(PiTvServerConfig& server_config, const po::variables_map& vm)
 {
 	if (vm.count("listen"))
