@@ -41,6 +41,38 @@ void PiTVDesktopViewer::onDisconnectClicked()
 {
 }
 
+void PiTVDesktopViewer::requestServerStatus(const ServerStatusRequest& request)
+{
+    QUrl url(request.serverHostname + "/status");
+    QNetworkReply* reply = netAccessManager.get(QNetworkRequest(url));
+    Q_ASSERT(reply);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() { serverStatusHttpRequestFinished(reply); });
+#if QT_CONFIG(ssl)
+    connect(reply, &QNetworkReply::sslErrors, this, [this, reply]() { serverStatusSslErrors(reply); });
+#endif
+    
+    serverStatusReplyMap[reply] = request;
+}
+
+void PiTVDesktopViewer::serverStatusHttpRequestFinished(QNetworkReply* reply)
+{
+    Q_ASSERT(serverStatusReplyMap.count(reply) > 1);
+    ServerStatusRequest requestData = serverStatusReplyMap[reply];
+    serverStatusReplyMap.remove(reply);
+    reply->deleteLater();
+
+    if (requestData.serverListItem)
+    {
+
+    }
+    
+}
+
+void PiTVDesktopViewer::serverStatusSslErrors(QNetworkReply* reply)
+{
+}
+
 void PiTVDesktopViewer::onExitClicked()
 {
     QApplication::quit();

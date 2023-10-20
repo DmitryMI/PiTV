@@ -119,10 +119,10 @@ void PiTvServer::on_status_request(mg_connection* c, mg_http_message* hm) const
         "{"
         "\"temp_cpu_ok\": %d,"
         "\"temp_cpu\": %3.2f,"
-        "\"cpu_load_process_ok\": %d,"
-        "\"cpu_load_process\": %3.2f,"
-        "\"cpu_load_total_ok\": %d,"
-        "\"cpu_load_total\": %3.2f"
+        "\"load_cpu_process_ok\": %d,"
+        "\"load_cpu_process\": %3.2f,"
+        "\"load_cpu_total_ok\": %d,"
+        "\"load_cpu_total\": %3.2f"
         "}\n", 
         status.temperature_cpu_ok, status.temperature_cpu,
         status.load_cpu_process_ok, status.load_cpu_process,

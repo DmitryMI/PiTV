@@ -3,7 +3,7 @@ project(PiTVDesktopViewer LANGUAGES CXX)
 
 include(qt.cmake)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)
@@ -12,6 +12,7 @@ find_package(Qt${QT_VERSION_MAJOR}
         Core
         Gui
         Widgets
+        Network
 )
 qt_standard_project_setup()
 
@@ -23,7 +24,11 @@ set(PROJECT_SOURCES
     EditServerDialog.ui
     EditServerDialog.h
     EditServerDialog.cpp
+    ServerStatusMessage.h
+    resources.qrc
 )
+
+set(CMAKE_AUTORCC ON)
 
 qt_add_executable(PiTVDesktopViewer ${PROJECT_SOURCES})
 
@@ -37,11 +42,9 @@ target_link_libraries(PiTVDesktopViewer
         Qt::Core
         Qt::Gui
         Qt::Widgets
+        Qt::Network
+        Qt6::Widgets
 )
-
-if (CMAKE_VERSION VERSION_GREATER 3.12)
-	set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 23)
-endif()
 
 
 # Gstreamer
@@ -61,5 +64,4 @@ target_link_libraries(${PROJECT_NAME}
 	PRIVATE PkgConfig::gstreamer-sdp
 	PRIVATE PkgConfig::gstreamer-app
 	PRIVATE PkgConfig::gstreamer-video
-	PRIVATE Qt6::Widgets
 )
