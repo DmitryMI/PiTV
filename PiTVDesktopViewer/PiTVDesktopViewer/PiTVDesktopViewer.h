@@ -39,6 +39,9 @@ private:
     void updateServerListItemText(QListWidgetItem* item, bool isInitialized, QString errorStr) const;
     void updateStatusBarServerStatus(QString loadCpuProcess, QString loadCpuTotal, QString tempCpu);
 
+    void loadServerConfigs();
+    void saveServerConfigs();
+
 public slots:
     void onDisconnectClicked();
     void onExitClicked();

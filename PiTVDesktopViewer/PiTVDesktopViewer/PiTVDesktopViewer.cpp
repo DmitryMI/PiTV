@@ -3,7 +3,9 @@
 #include <qlabel.h>
 #include <qpushbutton.h>
 #include "EditServerDialog.h"
-
+#include "ServerConfig.h"
+#include "ServerConfigStorage.h"
+#include "QMessageBox"
 
 PiTVDesktopViewer::PiTVDesktopViewer(QWidget* parent)
 	: QMainWindow(parent)
@@ -23,7 +25,6 @@ PiTVDesktopViewer::PiTVDesktopViewer(QWidget* parent)
 	statusBar->addWidget(serverTempCpuValue);
 	setStatusBar(statusBar);
 
-	// Connect signals
 	connect(ui.actionDisconnect, &QAction::triggered, this, &PiTVDesktopViewer::onDisconnectClicked);
 	connect(ui.addServerButton, &QPushButton::clicked, this, &PiTVDesktopViewer::onAddServerClicked);
 	connect(ui.editServerButton, &QPushButton::clicked, this, &PiTVDesktopViewer::onEditServerClicked);
@@ -152,6 +153,32 @@ void PiTVDesktopViewer::updateStatusBarServerStatus(QString loadCpuProcess, QStr
 	serverTempCpuValue->setText(QString("Temperature (CPU): %1").arg(tempCpu));
 }
 
+void PiTVDesktopViewer::loadServerConfigs()
+{
+}
+
+void PiTVDesktopViewer::saveServerConfigs()
+{
+	QList<ServerConfig> serverConfigs;
+	int itemNum = ui.serverListWidget->count();
+	for (int i = 0; i < itemNum; i++)
+	{
+		QListWidgetItem* serverConfigItem = ui.serverListWidget->item(i);
+		QMap<QString, QVariant> serverDataMap = serverConfigItem->data(Qt::UserRole).toMap();
+		ServerConfig serverConfig;
+		serverConfig.serverUrl = serverDataMap["serverAddress"].toString();
+		serverConfig.username = serverDataMap["username"].toString();
+		serverConfig.password = serverDataMap["password"].toString();
+		serverConfigs.append(serverConfig);
+	}
+
+	ServerConfigStorage storage("servers.json");
+	if (!storage.saveAllConfigs(serverConfigs))
+	{
+		QMessageBox::critical(this, "Config storage error", "Failed to save server configurations!", QMessageBox::StandardButton::Ok);
+	}
+}
+
 void PiTVDesktopViewer::onExitClicked()
 {
 	QApplication::quit();
@@ -185,6 +212,8 @@ void PiTVDesktopViewer::onAddServerClicked()
 	requestServerStatus(request);
 
 	delete editServerDialog;
+
+	saveServerConfigs();
 }
 
 void PiTVDesktopViewer::onEditServerClicked()

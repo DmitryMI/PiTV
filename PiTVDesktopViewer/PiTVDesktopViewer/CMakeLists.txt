@@ -25,6 +25,11 @@ set(PROJECT_SOURCES
     EditServerDialog.h
     EditServerDialog.cpp
     ServerStatusMessage.h
+    ServerConfig.h
+    ServerConfigStorage.h 
+    ServerConfigStorage.cpp
+    PlatformEncryption.h
+    PlatformEncryption.cpp
     resources.qrc
 )
 
@@ -44,6 +49,7 @@ target_link_libraries(PiTVDesktopViewer
         Qt::Widgets
         Qt::Network
         Qt6::Widgets
+        Crypt32
 )
 
 
