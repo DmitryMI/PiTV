@@ -1,7 +1,10 @@
+#pragma once
+
 #include "PiTVDesktopViewer.h"
 #include <QStatusBar>
-#include <qlabel.h>
-#include <qpushbutton.h>
+#include <QLabel>
+#include <QPushButton>
+#include <QFile>
 #include "EditServerDialog.h"
 #include "ServerConfig.h"
 #include "ServerConfigStorage.h"
@@ -29,6 +32,8 @@ PiTVDesktopViewer::PiTVDesktopViewer(QWidget* parent)
 	connect(ui.addServerButton, &QPushButton::clicked, this, &PiTVDesktopViewer::onAddServerClicked);
 	connect(ui.editServerButton, &QPushButton::clicked, this, &PiTVDesktopViewer::onEditServerClicked);
 	connect(ui.removeServerButton, &QPushButton::clicked, this, &PiTVDesktopViewer::onRemoveServerClicked);
+
+	loadServerConfigs();
 }
 
 PiTVDesktopViewer::~PiTVDesktopViewer()
@@ -155,6 +160,37 @@ void PiTVDesktopViewer::updateStatusBarServerStatus(QString loadCpuProcess, QStr
 
 void PiTVDesktopViewer::loadServerConfigs()
 {
+	QFile file;
+	file.setFileName("servers.json");
+	if (!file.exists())
+	{
+		return;
+	}
+
+	QList<ServerConfig> serverConfigs;
+	ServerConfigStorage storage("servers.json");
+	if (!storage.loadAllConfigs(serverConfigs))
+	{
+		QMessageBox::critical(this, "Config storage error", "Failed to load server configurations!", QMessageBox::StandardButton::Ok);
+	}
+
+	for (const ServerConfig& config : serverConfigs)
+	{
+		QMap<QString, QVariant> serverDataMap;
+		serverDataMap["serverAddress"] = config.serverUrl;
+		serverDataMap["username"] = config.username;
+		serverDataMap["password"] = config.password;
+
+		QListWidgetItem* item = new QListWidgetItem(ui.serverListWidget);
+		item->setData(Qt::UserRole, serverDataMap);
+		item->setIcon(QIcon(":/icons/unknown.png"));
+		updateServerListItemText(item, false, "");
+
+		ServerStatusRequest request;
+		request.serverHostname = config.serverUrl;
+		request.serverListItem = item;
+		requestServerStatus(request);
+	}
 }
 
 void PiTVDesktopViewer::saveServerConfigs()
@@ -254,6 +290,8 @@ void PiTVDesktopViewer::onEditServerClicked()
 	requestServerStatus(request);
 
 	delete editServerDialog;
+
+	saveServerConfigs();
 }
 
 void PiTVDesktopViewer::onRemoveServerClicked()
