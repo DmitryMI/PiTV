@@ -24,8 +24,6 @@ PiTVDesktopViewer::PiTVDesktopViewer(QWidget* parent)
 	leaseUpdateTimer = new QTimer(this);
 	connect(leaseUpdateTimer, &QTimer::timeout, this, QOverload<>::of(&PiTVDesktopViewer::onLeaseUpdateTimerElapsed));
 
-	leaseUpdateTimer = new QTimer(this);
-
 	QStatusBar* statusBar = new QStatusBar();
 
 	serverCpuProcessLoadValue = new QLabel();
@@ -186,10 +184,9 @@ void PiTVDesktopViewer::cameraLeaseHttpRequestFinished(QNetworkReply* reply)
 	{
 		disconnect = false;
 
-		QJsonDocument doc;
-		auto replyPayload = reply->readAll();
-		QJsonObject jsonObj = doc.object();
-		activeLeaseRequest.leaseGuid = jsonObj["guid"].toString();
+		QJsonDocument d = QJsonDocument::fromJson(reply->readAll());
+		QJsonObject root = d.object();
+		activeLeaseRequest.leaseGuid = root["guid"].toString();
 	}
 	else
 	{

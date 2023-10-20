@@ -56,7 +56,6 @@ public:
 	static bool fromJson(QString jsonText, ServerStatusMessage& message)
 	{
         QJsonDocument d = QJsonDocument::fromJson(jsonText.toUtf8());
-        QString str = QString(d.toJson());
 
         QJsonObject root = d.object();
         auto rootKeys = root.keys();
