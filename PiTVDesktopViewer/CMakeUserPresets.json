@@ -10,7 +10,10 @@
       },
       "inherits": [
         "Qt-Default"
-      ]
+      ],
+      "environment": {
+        "GST_DEBUG_FILE": "C:\\Users\\DmitriyPC\\Downloads\\_temp\\gst.log"
+      }
     },
     {
       "name": "Release-x64",
@@ -54,7 +57,7 @@
   ],
   "vendor": {
     "qt-project.org/Presets": {
-      "checksum": "BDaYrCKPTZH2w3EjdSiwFQl7K7g="
+      "checksum": "hZbdPwzhVc44tQO4B8OdrJg3JuI="
     }
   }
 }

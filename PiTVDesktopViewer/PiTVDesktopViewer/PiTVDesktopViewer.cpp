@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QFile>
+#include <QTimer>
 #include "EditServerDialog.h"
 #include "ServerConfig.h"
 #include "ServerConfigStorage.h"
@@ -14,6 +15,16 @@ PiTVDesktopViewer::PiTVDesktopViewer(QWidget* parent)
 	: QMainWindow(parent)
 {
 	ui.setupUi(this);
+
+	//timer.reset(new QTimer(this));
+	pipelinePollTimer = new QTimer(this);
+	connect(pipelinePollTimer, &QTimer::timeout, this, QOverload<>::of(&PiTVDesktopViewer::onPipelinePollTimerElapsed));
+	pipelinePollTimer->start(100);
+
+	leaseUpdateTimer = new QTimer(this);
+	connect(leaseUpdateTimer, &QTimer::timeout, this, QOverload<>::of(&PiTVDesktopViewer::onLeaseUpdateTimerElapsed));
+
+	leaseUpdateTimer = new QTimer(this);
 
 	QStatusBar* statusBar = new QStatusBar();
 
@@ -32,6 +43,8 @@ PiTVDesktopViewer::PiTVDesktopViewer(QWidget* parent)
 	connect(ui.addServerButton, &QPushButton::clicked, this, &PiTVDesktopViewer::onAddServerClicked);
 	connect(ui.editServerButton, &QPushButton::clicked, this, &PiTVDesktopViewer::onEditServerClicked);
 	connect(ui.removeServerButton, &QPushButton::clicked, this, &PiTVDesktopViewer::onRemoveServerClicked);
+	connect(ui.serverListWidget, &QListWidget::itemDoubleClicked, this, &PiTVDesktopViewer::onServerDoubleClicked);
+	connect(ui.actionExit, &QAction::triggered, this, &PiTVDesktopViewer::onExitClicked);
 
 	loadServerConfigs();
 }
@@ -46,7 +59,7 @@ void PiTVDesktopViewer::onDisconnectClicked()
 
 void PiTVDesktopViewer::requestServerStatus(const ServerStatusRequest& request)
 {
-	QUrl url(request.serverHostname + "/status");
+	QUrl url(request.serverConfig.serverUrl + "/status");
 	QNetworkReply* reply = netAccessManager.get(QNetworkRequest(url));
 	Q_ASSERT(reply);
 
@@ -56,6 +69,33 @@ void PiTVDesktopViewer::requestServerStatus(const ServerStatusRequest& request)
 #endif
 
 	serverStatusReplyMap[reply] = request;
+}
+
+void PiTVDesktopViewer::requestCameraLease(const CameraLeaseRequest& request)
+{
+	QJsonDocument requestJsonDoc;
+	QJsonObject jsonObj = requestJsonDoc.object();
+	jsonObj["lease_guid"] = request.leaseGuid;
+	jsonObj["udp_address"] = request.udpAddress;
+	jsonObj["udp_port"] = request.udpPort;
+	jsonObj["lease_time"] = request.leaseTimeMsec;
+	requestJsonDoc.setObject(jsonObj);
+	QByteArray postPayload = requestJsonDoc.toJson();
+
+	QString creds = QString("%1:%2").arg(request.serverConfig.username, request.serverConfig.password);
+	QByteArray data = creds.toLocal8Bit().toBase64();
+	QString headerData = "Basic " + data;
+
+	QUrl url(request.serverConfig.serverUrl + "/camera");
+	QNetworkRequest netRequest(url);
+	netRequest.setRawHeader("Authorization", headerData.toLocal8Bit());
+	netRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+	QNetworkReply* reply = netAccessManager.post(netRequest, postPayload);
+	Q_ASSERT(reply);
+
+	connect(reply, &QNetworkReply::finished, this, [this, reply]() { cameraLeaseHttpRequestFinished(reply); });
+
+	cameraLeaseReplyMap[reply] = request;
 }
 
 void PiTVDesktopViewer::serverStatusHttpRequestFinished(QNetworkReply* reply)
@@ -82,7 +122,7 @@ void PiTVDesktopViewer::serverStatusHttpRequestFinished(QNetworkReply* reply)
 		requestData.serverListItem->setIcon(statusIcon);
 		updateServerListItemText(requestData.serverListItem, true, errorMsg);
 	}
-	if (requestData.isActiveConnection)
+	if (requestData.doUpdateStatusBar)
 	{
 		QString jsonResponse = QString(reply->readAll());
 		ServerStatusMessage serverStatus;
@@ -135,13 +175,43 @@ void PiTVDesktopViewer::serverStatusSslErrors(QNetworkReply* reply)
 {
 }
 
+void PiTVDesktopViewer::cameraLeaseHttpRequestFinished(QNetworkReply* reply)
+{
+	Q_ASSERT(cameraLeaseReplyMap.count(reply) == 1);
+	CameraLeaseRequest& requestData = cameraLeaseReplyMap[reply];
+	cameraLeaseReplyMap.remove(reply);
+
+	bool disconnect = true;
+	if (reply->error() == QNetworkReply::NoError)
+	{
+		disconnect = false;
+
+		QJsonDocument doc;
+		auto replyPayload = reply->readAll();
+		QJsonObject jsonObj = doc.object();
+		activeLeaseRequest.leaseGuid = jsonObj["guid"].toString();
+	}
+	else
+	{
+		QMessageBox::critical(this, "Failed to lease camera", reply->errorString());
+	}
+
+	if (disconnect)
+	{
+		serverStatusReplyMap.remove(reply);
+		leaseUpdateTimer->stop();
+	}
+
+	reply->deleteLater();
+}
+
 void PiTVDesktopViewer::updateServerListItemText(QListWidgetItem* item, bool isInitialized, QString errorStr) const
 {
 	QMap<QString, QVariant> serverDataMap = item->data(Qt::UserRole).toMap();
 
 	QString text = (serverDataMap["serverAddress"].toString() + " " +
 		"(" + serverDataMap["username"].toString() + ")"
-	);
+		);
 
 	if (isInitialized)
 	{
@@ -187,7 +257,7 @@ void PiTVDesktopViewer::loadServerConfigs()
 		updateServerListItemText(item, false, "");
 
 		ServerStatusRequest request;
-		request.serverHostname = config.serverUrl;
+		request.serverConfig = ServerConfig(serverDataMap["serverAddress"].toString(), serverDataMap["username"].toString(), serverDataMap["password"].toString());
 		request.serverListItem = item;
 		requestServerStatus(request);
 	}
@@ -243,7 +313,7 @@ void PiTVDesktopViewer::onAddServerClicked()
 	updateServerListItemText(item, false, "");
 
 	ServerStatusRequest request;
-	request.serverHostname = editServerDialog->getServerAddress();
+	request.serverConfig = ServerConfig(editServerDialog->getServerAddress(), editServerDialog->getUsername(), editServerDialog->getPassword());
 	request.serverListItem = item;
 	requestServerStatus(request);
 
@@ -283,9 +353,9 @@ void PiTVDesktopViewer::onEditServerClicked()
 	item->setData(Qt::UserRole, serverDataMap);
 	item->setIcon(QIcon(":/icons/unknown.png"));
 	updateServerListItemText(item, false, "");
-	
+
 	ServerStatusRequest request;
-	request.serverHostname = editServerDialog->getServerAddress();
+	request.serverConfig = ServerConfig(editServerDialog->getServerAddress(), editServerDialog->getUsername(), editServerDialog->getPassword());
 	request.serverListItem = item;
 	requestServerStatus(request);
 
@@ -302,4 +372,61 @@ void PiTVDesktopViewer::onRemoveServerClicked()
 		ui.serverListWidget->removeItemWidget(item);
 		delete item;
 	}
+}
+
+void PiTVDesktopViewer::onServerDoubleClicked(QListWidgetItem* item)
+{
+	QMap<QString, QVariant> serverDataMap = item->data(Qt::UserRole).toMap();
+	activeServerConfig.serverUrl = serverDataMap["serverAddress"].toString();
+	activeServerConfig.username = serverDataMap["username"].toString();
+	activeServerConfig.password = serverDataMap["password"].toString();
+
+	int port = 5000;
+
+	if (!pipeline)
+	{
+		pipeline.reset(new Pipeline(port, ui.videoViewer->winId()));
+	}
+
+	if (!pipeline->isPipelinePlaying() && !pipeline->startPipeline())
+	{
+		QMessageBox::critical(this, "Pipeline error", "Failed to start the pipeline!", QMessageBox::StandardButton::Ok);
+		pipeline.reset(nullptr);
+		return;
+	}
+
+	activeLeaseRequest.serverConfig = activeServerConfig;
+	activeLeaseRequest.leaseTimeMsec = 10000;
+	activeLeaseRequest.udpAddress = "192.168.0.2";
+	activeLeaseRequest.udpPort = port;
+	activeLeaseRequest.leaseGuid = "";
+
+	requestCameraLease(activeLeaseRequest);
+	leaseUpdateTimer->start(5000);
+}
+
+void PiTVDesktopViewer::onPipelinePollTimerElapsed()
+{
+	if (!pipeline)
+	{
+		return;
+	}
+
+	pipeline->busPoll();
+}
+
+void PiTVDesktopViewer::onLeaseUpdateTimerElapsed()
+{
+	if (activeServerConfig.serverUrl.isEmpty())
+	{
+		return;
+	}
+
+	ServerStatusRequest statusUpdateRequest;
+	statusUpdateRequest.doUpdateStatusBar = true;
+	statusUpdateRequest.serverConfig = activeServerConfig;
+	statusUpdateRequest.serverListItem = nullptr;
+	requestServerStatus(statusUpdateRequest);
+
+	requestCameraLease(activeLeaseRequest);
 }

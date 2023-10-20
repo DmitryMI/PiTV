@@ -30,6 +30,8 @@ set(PROJECT_SOURCES
     ServerConfigStorage.cpp
     PlatformEncryption.h
     PlatformEncryption.cpp
+    Pipeline.h 
+    Pipeline.cpp
     resources.qrc
 )
 
