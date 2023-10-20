@@ -10,7 +10,8 @@
 struct ServerStatusRequest
 {
     QString serverHostname;
-    QListWidgetItem* serverListItem;
+    QListWidgetItem* serverListItem = nullptr;
+    bool isActiveConnection = false;
 };
 
 class PiTVDesktopViewer : public QMainWindow
@@ -22,6 +23,10 @@ public:
     ~PiTVDesktopViewer();
 
 private:
+    QLabel* serverCpuProcessLoadValue = new QLabel(tr("N/A"));
+    QLabel* serverCpuTotalLoadValue = new QLabel(tr("N/A"));
+    QLabel* serverTempCpuValue = new QLabel(tr("N/A"));
+
     Ui::PiTVDesktopViewerClass ui;
     QNetworkAccessManager netAccessManager;
     QMap<QNetworkReply*, ServerStatusRequest> serverStatusReplyMap;
@@ -30,6 +35,9 @@ private:
 
     void serverStatusHttpRequestFinished(QNetworkReply* reply);
     void serverStatusSslErrors(QNetworkReply* reply);
+
+    void updateServerListItemText(QListWidgetItem* item, bool isInitialized, QString errorStr) const;
+    void updateStatusBarServerStatus(QString loadCpuProcess, QString loadCpuTotal, QString tempCpu);
 
 public slots:
     void onDisconnectClicked();

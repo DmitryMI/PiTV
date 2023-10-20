@@ -5,5 +5,6 @@
         <file alias="failure.png">resources/icons/close_FILL0_wght400_GRAD0_opsz48.png</file>
         <file alias="success.png">resources/icons/done_FILL0_wght400_GRAD0_opsz48.png</file>
         <file alias="edit.png">resources/icons/edit_FILL0_wght400_GRAD0_opsz48.png</file>
+        <file alias="unknown.png">resources/icons/question_mark_FILL0_wght400_GRAD0_opsz48.png</file>
     </qresource>
 </RCC>

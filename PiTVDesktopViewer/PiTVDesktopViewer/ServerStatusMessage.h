@@ -29,25 +29,25 @@ public:
 
     static bool readValue(const QJsonObject& root, QString name, bool& out_result)
     {
-        QJsonValue json_value = root.value(name);
-        if (!json_value.isNull())
+        QJsonValue json_value = root[name];
+        if (json_value.isBool())
         {
-            return false;
+            out_result = json_value.toBool();
+            return true;
+        }
+        else
+        {
+            double val = json_value.toDouble(-1);
+            out_result = static_cast<bool>(val);
+            return val > -1;
         }
 
-        out_result = json_value.toBool();
-
-        return true;
+        return false;
     }
 
     static bool readValue(const QJsonObject& root, QString name, double& out_result)
     {
         QJsonValue json_value = root.value(name);
-        if (!json_value.isNull())
-        {
-            return false;
-        }
-
         out_result = json_value.toDouble();
 
         return true;
@@ -56,8 +56,16 @@ public:
 	static bool fromJson(QString jsonText, ServerStatusMessage& message)
 	{
         QJsonDocument d = QJsonDocument::fromJson(jsonText.toUtf8());
-        QJsonObject root = d.object();
+        QString str = QString(d.toJson());
 
+        QJsonObject root = d.object();
+        auto rootKeys = root.keys();
+        for (const QString& key : rootKeys)
+        {
+            qWarning() << key << ": " << root[key].toDouble();
+        }
+        
+        message.isLoadCpuProcessOk = root["load_cpu_process_ok"].toDouble() > 0 ? true : false;
         if (!readValue(root, "load_cpu_process_ok", message.isLoadCpuProcessOk))
         {
             return false;
