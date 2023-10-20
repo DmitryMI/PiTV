@@ -54,6 +54,7 @@ void PiTVDesktopViewer::onAddServerClicked()
 
     if (!editServerDialog->result())
     {
+        delete editServerDialog;
         return;
     }
 
@@ -64,13 +65,26 @@ void PiTVDesktopViewer::onAddServerClicked()
 
     QListWidgetItem* item = new QListWidgetItem(ui.serverListWidget);
     item->setData(Qt::UserRole, serverDataMap);
-    item->setText(editServerDialog->getServerAddress() + "(" + editServerDialog->getUsername() + ")");
+    item->setText(editServerDialog->getServerAddress() + " (" + editServerDialog->getUsername() + ")");
     delete editServerDialog;
 }
 
 void PiTVDesktopViewer::onEditServerClicked()
 {
+    auto selectedItems = ui.serverListWidget->selectedItems();
+    if (selectedItems.size() != 1)
+    {
+        return;
+    }
+
+    QListWidgetItem* item = selectedItems[0];
+    QMap<QString, QVariant> serverDataMap = item->data(Qt::UserRole).toMap();
+
     EditServerDialog* editServerDialog = new EditServerDialog();
+    editServerDialog->setServerAddress(serverDataMap["serverAddress"].toString());
+    editServerDialog->setUsername(serverDataMap["username"].toString());
+    editServerDialog->setPassword(serverDataMap["password"].toString());
+
     editServerDialog->setWindowModality(Qt::ApplicationModal);
     editServerDialog->exec();
 
@@ -79,9 +93,21 @@ void PiTVDesktopViewer::onEditServerClicked()
         return;
     }
 
+    serverDataMap["serverAddress"] = editServerDialog->getServerAddress();
+    serverDataMap["username"] = editServerDialog->getUsername();
+    serverDataMap["password"] = editServerDialog->getPassword();
 
+    item->setData(Qt::UserRole, serverDataMap);
+    item->setText(editServerDialog->getServerAddress() + "(" + editServerDialog->getUsername() + ")");
+    delete editServerDialog;
 }
 
 void PiTVDesktopViewer::onRemoveServerClicked()
 {
+    auto selectedItems = ui.serverListWidget->selectedItems();
+    for (auto item : selectedItems)
+    {
+        ui.serverListWidget->removeItemWidget(item);
+        delete item;
+    }
 }
