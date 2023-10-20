@@ -50,16 +50,17 @@ private:
     QMap<QNetworkReply*, ServerStatusRequest> serverStatusReplyMap;
     QMap<QNetworkReply*, CameraLeaseRequest> cameraLeaseReplyMap;
 
-    ServerConfig activeServerConfig;
     CameraLeaseRequest activeLeaseRequest;
 
     void requestServerStatus(const ServerStatusRequest& request);
     void requestCameraLease(const CameraLeaseRequest& request);
+    void disconnectFromCamera(const CameraLeaseRequest& request);
 
     void serverStatusHttpRequestFinished(QNetworkReply* reply);
     void serverStatusSslErrors(QNetworkReply* reply);
 
     void cameraLeaseHttpRequestFinished(QNetworkReply* reply);
+    void cameraEndLeaseRequestFinished(QNetworkReply* reply);
 
     void updateServerListItemText(QListWidgetItem* item, bool isInitialized, QString errorStr) const;
     void updateStatusBarServerStatus(QString loadCpuProcess, QString loadCpuTotal, QString tempCpu);

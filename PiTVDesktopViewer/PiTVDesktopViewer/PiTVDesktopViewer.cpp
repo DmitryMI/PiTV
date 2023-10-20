@@ -53,6 +53,12 @@ PiTVDesktopViewer::~PiTVDesktopViewer()
 
 void PiTVDesktopViewer::onDisconnectClicked()
 {
+	if (activeLeaseRequest.serverConfig.serverUrl.isEmpty())
+	{
+		return;
+	}
+
+	disconnectFromCamera(activeLeaseRequest);
 }
 
 void PiTVDesktopViewer::requestServerStatus(const ServerStatusRequest& request)
@@ -94,6 +100,35 @@ void PiTVDesktopViewer::requestCameraLease(const CameraLeaseRequest& request)
 	connect(reply, &QNetworkReply::finished, this, [this, reply]() { cameraLeaseHttpRequestFinished(reply); });
 
 	cameraLeaseReplyMap[reply] = request;
+}
+
+void PiTVDesktopViewer::disconnectFromCamera(const CameraLeaseRequest& request)
+{
+	QJsonDocument requestJsonDoc;
+	QJsonObject jsonObj = requestJsonDoc.object();
+	jsonObj["lease_guid"] = request.leaseGuid;
+
+	// lease_time == 0 will end camera lease
+	jsonObj["lease_time"] = 0;
+
+	requestJsonDoc.setObject(jsonObj);
+	QByteArray postPayload = requestJsonDoc.toJson();
+
+	QString creds = QString("%1:%2").arg(request.serverConfig.username, request.serverConfig.password);
+	QByteArray data = creds.toLocal8Bit().toBase64();
+	QString headerData = "Basic " + data;
+
+	QUrl url(request.serverConfig.serverUrl + "/camera");
+	QNetworkRequest netRequest(url);
+	netRequest.setRawHeader("Authorization", headerData.toLocal8Bit());
+	netRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+	QNetworkReply* reply = netAccessManager.post(netRequest, postPayload);
+	Q_ASSERT(reply);
+
+	connect(reply, &QNetworkReply::finished, this, [this, reply]() { cameraEndLeaseRequestFinished(reply); });
+
+	leaseUpdateTimer->stop();
+	activeLeaseRequest = CameraLeaseRequest();
 }
 
 void PiTVDesktopViewer::serverStatusHttpRequestFinished(QNetworkReply* reply)
@@ -179,10 +214,10 @@ void PiTVDesktopViewer::cameraLeaseHttpRequestFinished(QNetworkReply* reply)
 	CameraLeaseRequest& requestData = cameraLeaseReplyMap[reply];
 	cameraLeaseReplyMap.remove(reply);
 
-	bool disconnect = true;
+	bool leaseFailed = true;
 	if (reply->error() == QNetworkReply::NoError)
 	{
-		disconnect = false;
+		leaseFailed = false;
 
 		QJsonDocument d = QJsonDocument::fromJson(reply->readAll());
 		QJsonObject root = d.object();
@@ -193,12 +228,17 @@ void PiTVDesktopViewer::cameraLeaseHttpRequestFinished(QNetworkReply* reply)
 		QMessageBox::critical(this, "Failed to lease camera", reply->errorString());
 	}
 
-	if (disconnect)
+	if (leaseFailed)
 	{
-		serverStatusReplyMap.remove(reply);
 		leaseUpdateTimer->stop();
+		activeLeaseRequest = CameraLeaseRequest();
 	}
 
+	reply->deleteLater();
+}
+
+void PiTVDesktopViewer::cameraEndLeaseRequestFinished(QNetworkReply* reply)
+{
 	reply->deleteLater();
 }
 
@@ -374,6 +414,7 @@ void PiTVDesktopViewer::onRemoveServerClicked()
 void PiTVDesktopViewer::onServerDoubleClicked(QListWidgetItem* item)
 {
 	QMap<QString, QVariant> serverDataMap = item->data(Qt::UserRole).toMap();
+	ServerConfig activeServerConfig;
 	activeServerConfig.serverUrl = serverDataMap["serverAddress"].toString();
 	activeServerConfig.username = serverDataMap["username"].toString();
 	activeServerConfig.password = serverDataMap["password"].toString();
@@ -414,14 +455,14 @@ void PiTVDesktopViewer::onPipelinePollTimerElapsed()
 
 void PiTVDesktopViewer::onLeaseUpdateTimerElapsed()
 {
-	if (activeServerConfig.serverUrl.isEmpty())
+	if (activeLeaseRequest.serverConfig.serverUrl.isEmpty())
 	{
 		return;
 	}
 
 	ServerStatusRequest statusUpdateRequest;
 	statusUpdateRequest.doUpdateStatusBar = true;
-	statusUpdateRequest.serverConfig = activeServerConfig;
+	statusUpdateRequest.serverConfig = activeLeaseRequest.serverConfig;
 	statusUpdateRequest.serverListItem = nullptr;
 	requestServerStatus(statusUpdateRequest);
 
