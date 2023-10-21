@@ -97,17 +97,43 @@ Pipeline::~Pipeline()
 bool Pipeline::constructPipeline()
 {
 	GError* error;
-	QString launchStr = QString("udpsrc name=udpsrc port=%1 ! application/x-rtp,clock-rate=90000,payload=96 ! rtph264depay ! avdec_h264 ! glimagesink name=glimagesink").arg(port);
 
-	gst_pipeline = gst_parse_launch(launchStr.toStdString().c_str(), NULL);
+	//QString launchStr = QString("udpsrc name=udpsrc port=%1 ! application/x-rtp,clock-rate=90000,payload=96 ! rtph264depay ! avdec_h264 ! glimagesink name=glimagesink").arg(port);
+	//gst_pipeline = gst_parse_launch(launchStr.toStdString().c_str(), NULL);
+	gst_pipeline = gst_pipeline_new("main-pipeline");
 	Q_ASSERT(gst_pipeline);
 
+	GstElement* udpsrc = gst_element_factory_make("udpsrc", "udpsrc");
+	Q_ASSERT(udpsrc);
+	g_object_set(udpsrc, "port", port, NULL);
+	GstElement* capsfilter = gst_element_factory_make("capsfilter", NULL);
+	Q_ASSERT(capsfilter);
+
+	GstCaps* caps = gst_caps_new_simple(
+		"application/x-rtp",
+		"clock-rate", G_TYPE_INT, 90000,
+		"payload", G_TYPE_STRING, "video",
+		NULL);
+
+	g_object_set(capsfilter, "caps", caps, NULL);
+	GstElement* rtph264depay = gst_element_factory_make("rtph264depay", "rtph264depay");
+	Q_ASSERT(rtph264depay);
+	GstElement* avdec_h264 = gst_element_factory_make("avdec_h264", "avdec_h264");
+	Q_ASSERT(avdec_h264);
+	GstElement* glimagesink = gst_element_factory_make("glimagesink", "glimagesink");
+	Q_ASSERT(glimagesink);
+
+	gst_bin_add_many(GST_BIN(gst_pipeline), udpsrc, capsfilter, rtph264depay, avdec_h264, glimagesink, NULL);
+
+	if (!gst_element_link_many(udpsrc, capsfilter, rtph264depay, avdec_h264, glimagesink, NULL))
+	{
+		return false;
+	}
+	
 	gst_bus = gst_element_get_bus(gst_pipeline);
 	Q_ASSERT(gst_bus);
 
-	GstElement* sink = gst_bin_get_by_name(GST_BIN(gst_pipeline), "glimagesink");
-	Q_ASSERT(sink);
-	gst_video_overlay_set_window_handle(GST_VIDEO_OVERLAY(sink), windowHandle);
+	gst_video_overlay_set_window_handle(GST_VIDEO_OVERLAY(glimagesink), windowHandle);
 	return gst_pipeline;
 }
 
