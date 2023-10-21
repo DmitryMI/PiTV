@@ -4,10 +4,36 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QUrl>
+#include <QThread>
 #include "ui_PiTVDesktopViewer.h"
 #include "ServerStatusMessage.h"
 #include "ServerConfig.h"
 #include "Pipeline.h"
+
+struct CameraLeaseRequest
+{
+    ServerConfig serverConfig;
+    int leaseTimeMsec = 30000;
+    QString udpAddress;
+    int udpPort = 5000;
+    QString leaseGuid;
+};
+
+class PipelineAsyncConstructor : public QThread
+{
+    Q_OBJECT
+
+private:
+    WId windowHandle;
+    CameraLeaseRequest request;
+public:
+    PipelineAsyncConstructor(WId handle, const CameraLeaseRequest& request);
+    virtual void run() override;
+
+signals:
+    void pipelineConstructed(Pipeline* pipeline, CameraLeaseRequest request);
+};
+
 
 struct ServerStatusRequest
 {
@@ -16,14 +42,6 @@ struct ServerStatusRequest
     bool doUpdateStatusBar = false;
 };
 
-struct CameraLeaseRequest
-{
-    ServerConfig serverConfig;
-    int leaseTimeMsec = 30000;
-    QString udpAddress;
-    int udpPort;
-    QString leaseGuid;
-};
 
 class PiTVDesktopViewer : public QMainWindow
 {
@@ -39,6 +57,8 @@ private:
     QLabel* serverCpuProcessLoadValue = new QLabel(tr("N/A"));
     QLabel* serverCpuTotalLoadValue = new QLabel(tr("N/A"));
     QLabel* serverTempCpuValue = new QLabel(tr("N/A"));
+
+    PipelineAsyncConstructor* pipelineContructorThread = nullptr;
 
     //QScopedPointer<QTimer, QScopedPointerDeleteLater> timer;
     QTimer* pipelinePollTimer;
@@ -68,6 +88,8 @@ private:
     void loadServerConfigs();
     void saveServerConfigs();
 
+    void connectToCamera(const CameraLeaseRequest& request);
+
 public slots:
     void onDisconnectClicked();
     void onExitClicked();
@@ -77,4 +99,5 @@ public slots:
     void onServerDoubleClicked(QListWidgetItem* item);
     void onPipelinePollTimerElapsed();
     void onLeaseUpdateTimerElapsed();
+    void onPipelineConstructed(Pipeline* pipeline, const CameraLeaseRequest& request);
 };

@@ -11,6 +11,29 @@
 #include "ServerConfigStorage.h"
 #include "QMessageBox"
 
+void PipelineAsyncConstructor::run()
+{
+	qDebug() << "Constructing pipeline in thread " << QThread::currentThreadId();
+	
+	Pipeline* pipeline = new Pipeline(request.udpPort, windowHandle);
+	if (!pipeline->constructPipeline())
+	{
+		delete pipeline;
+		pipeline = nullptr;
+	}
+	
+
+	emit pipelineConstructed(pipeline, request);
+}
+
+
+PipelineAsyncConstructor::PipelineAsyncConstructor(WId handle, const CameraLeaseRequest& request)
+{
+	windowHandle = handle;
+	this->request = request;
+}
+
+
 PiTVDesktopViewer::PiTVDesktopViewer(QWidget* parent)
 	: QMainWindow(parent)
 {
@@ -49,6 +72,7 @@ PiTVDesktopViewer::PiTVDesktopViewer(QWidget* parent)
 
 PiTVDesktopViewer::~PiTVDesktopViewer()
 {
+
 }
 
 void PiTVDesktopViewer::onDisconnectClicked()
@@ -287,6 +311,7 @@ void PiTVDesktopViewer::loadServerConfigs()
 		serverDataMap["serverAddress"] = config.serverUrl;
 		serverDataMap["username"] = config.username;
 		serverDataMap["password"] = config.password;
+		serverDataMap["localUdpEndpoint"] = config.localUdpEndpoint;
 
 		QListWidgetItem* item = new QListWidgetItem(ui.serverListWidget);
 		item->setData(Qt::UserRole, serverDataMap);
@@ -294,7 +319,7 @@ void PiTVDesktopViewer::loadServerConfigs()
 		updateServerListItemText(item, false, "");
 
 		ServerStatusRequest request;
-		request.serverConfig = ServerConfig(serverDataMap["serverAddress"].toString(), serverDataMap["username"].toString(), serverDataMap["password"].toString());
+		request.serverConfig = config;
 		request.serverListItem = item;
 		requestServerStatus(request);
 	}
@@ -312,6 +337,7 @@ void PiTVDesktopViewer::saveServerConfigs()
 		serverConfig.serverUrl = serverDataMap["serverAddress"].toString();
 		serverConfig.username = serverDataMap["username"].toString();
 		serverConfig.password = serverDataMap["password"].toString();
+		serverConfig.localUdpEndpoint = serverDataMap["localUdpEndpoint"].toString();
 		serverConfigs.append(serverConfig);
 	}
 
@@ -320,6 +346,33 @@ void PiTVDesktopViewer::saveServerConfigs()
 	{
 		QMessageBox::critical(this, "Config storage error", "Failed to save server configurations!", QMessageBox::StandardButton::Ok);
 	}
+}
+
+void PiTVDesktopViewer::connectToCamera(const CameraLeaseRequest& request)
+{
+	if (!pipeline)
+	{
+		if (!pipelineContructorThread)
+		{
+			qDebug() << "Creating PipelineAsyncConstructor in thread " << QThread::currentThreadId();
+			pipelineContructorThread = new PipelineAsyncConstructor(ui.videoViewer->winId(), request);
+			connect(pipelineContructorThread, &PipelineAsyncConstructor::pipelineConstructed, this, &PiTVDesktopViewer::onPipelineConstructed);
+			connect(pipelineContructorThread, &PipelineAsyncConstructor::finished, pipelineContructorThread, &QObject::deleteLater);
+			pipelineContructorThread->start();
+		}
+		return;
+	}
+
+	if (!pipeline->isPipelinePlaying() && !pipeline->startPipeline())
+	{
+		QMessageBox::critical(this, "Pipeline error", "Failed to start the pipeline!", QMessageBox::StandardButton::Ok);
+		pipeline.reset(nullptr);
+		return;
+	}
+
+	activeLeaseRequest = request;
+	requestCameraLease(activeLeaseRequest);
+	leaseUpdateTimer->start(5000);
 }
 
 void PiTVDesktopViewer::onExitClicked()
@@ -343,6 +396,7 @@ void PiTVDesktopViewer::onAddServerClicked()
 	serverDataMap["serverAddress"] = editServerDialog->getServerAddress();
 	serverDataMap["username"] = editServerDialog->getUsername();
 	serverDataMap["password"] = editServerDialog->getPassword();
+	serverDataMap["localUdpEndpoint"] = editServerDialog->getPassword();
 
 	QListWidgetItem* item = new QListWidgetItem(ui.serverListWidget);
 	item->setData(Qt::UserRole, serverDataMap);
@@ -350,7 +404,7 @@ void PiTVDesktopViewer::onAddServerClicked()
 	updateServerListItemText(item, false, "");
 
 	ServerStatusRequest request;
-	request.serverConfig = ServerConfig(editServerDialog->getServerAddress(), editServerDialog->getUsername(), editServerDialog->getPassword());
+	request.serverConfig = ServerConfig(editServerDialog->getServerAddress(), editServerDialog->getUsername(), editServerDialog->getPassword(), editServerDialog->getLocalUdpEndpoint());
 	request.serverListItem = item;
 	requestServerStatus(request);
 
@@ -374,6 +428,7 @@ void PiTVDesktopViewer::onEditServerClicked()
 	editServerDialog->setServerAddress(serverDataMap["serverAddress"].toString());
 	editServerDialog->setUsername(serverDataMap["username"].toString());
 	editServerDialog->setPassword(serverDataMap["password"].toString());
+	editServerDialog->setLocalUdpEndpoint(serverDataMap["localUdpEndpoint"].toString());
 
 	editServerDialog->setWindowModality(Qt::ApplicationModal);
 	editServerDialog->exec();
@@ -386,13 +441,14 @@ void PiTVDesktopViewer::onEditServerClicked()
 	serverDataMap["serverAddress"] = editServerDialog->getServerAddress();
 	serverDataMap["username"] = editServerDialog->getUsername();
 	serverDataMap["password"] = editServerDialog->getPassword();
+	serverDataMap["localUdpEndpoint"] = editServerDialog->getLocalUdpEndpoint();
 
 	item->setData(Qt::UserRole, serverDataMap);
 	item->setIcon(QIcon(":/icons/unknown.png"));
 	updateServerListItemText(item, false, "");
 
 	ServerStatusRequest request;
-	request.serverConfig = ServerConfig(editServerDialog->getServerAddress(), editServerDialog->getUsername(), editServerDialog->getPassword());
+	request.serverConfig = ServerConfig(editServerDialog->getServerAddress(), editServerDialog->getUsername(), editServerDialog->getPassword(), editServerDialog->getLocalUdpEndpoint());
 	request.serverListItem = item;
 	requestServerStatus(request);
 
@@ -409,38 +465,37 @@ void PiTVDesktopViewer::onRemoveServerClicked()
 		ui.serverListWidget->removeItemWidget(item);
 		delete item;
 	}
+
+	saveServerConfigs();
 }
 
 void PiTVDesktopViewer::onServerDoubleClicked(QListWidgetItem* item)
 {
+	CameraLeaseRequest request;
 	QMap<QString, QVariant> serverDataMap = item->data(Qt::UserRole).toMap();
 	ServerConfig activeServerConfig;
 	activeServerConfig.serverUrl = serverDataMap["serverAddress"].toString();
 	activeServerConfig.username = serverDataMap["username"].toString();
 	activeServerConfig.password = serverDataMap["password"].toString();
-
-	int port = 5000;
-
-	if (!pipeline)
+	QString udpEndpoint = serverDataMap["localUdpEndpoint"].toString();
+	auto items = udpEndpoint.split(":");
+	request.udpAddress = items[0];
+	if (items.size() == 2)
 	{
-		pipeline.reset(new Pipeline(port, ui.videoViewer->winId()));
+		request.udpPort = items[1].toInt();
 	}
-
-	if (!pipeline->isPipelinePlaying() && !pipeline->startPipeline())
+	else
 	{
-		QMessageBox::critical(this, "Pipeline error", "Failed to start the pipeline!", QMessageBox::StandardButton::Ok);
-		pipeline.reset(nullptr);
+		QMessageBox::critical(this, "Bad input", "Failed to parse Local UDP Endpoint because of bad format!", QMessageBox::StandardButton::Ok);
 		return;
 	}
 
-	activeLeaseRequest.serverConfig = activeServerConfig;
-	activeLeaseRequest.leaseTimeMsec = 10000;
-	activeLeaseRequest.udpAddress = "192.168.0.2";
-	activeLeaseRequest.udpPort = port;
-	activeLeaseRequest.leaseGuid = "";
+	request.serverConfig = activeServerConfig;
+	request.leaseTimeMsec = 10000;
+	
+	request.leaseGuid = "";
 
-	requestCameraLease(activeLeaseRequest);
-	leaseUpdateTimer->start(5000);
+	connectToCamera(request);
 }
 
 void PiTVDesktopViewer::onPipelinePollTimerElapsed()
@@ -467,4 +522,20 @@ void PiTVDesktopViewer::onLeaseUpdateTimerElapsed()
 	requestServerStatus(statusUpdateRequest);
 
 	requestCameraLease(activeLeaseRequest);
+}
+
+void PiTVDesktopViewer::onPipelineConstructed(Pipeline* pipeline, const CameraLeaseRequest& request)
+{
+	qDebug() << "onPipelineConstructed invoked in thread " << QThread::currentThreadId();
+
+	pipelineContructorThread = nullptr;
+	this->pipeline.reset(pipeline);
+	if (pipeline)
+	{
+		connectToCamera(request);
+	}
+	else
+	{
+		QMessageBox::critical(this, "Pipeline construction error", "Failed to construct the pipeline!", QMessageBox::StandardButton::Ok);
+	}
 }

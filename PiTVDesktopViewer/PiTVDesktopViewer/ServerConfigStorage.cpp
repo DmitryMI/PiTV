@@ -36,6 +36,7 @@ bool ServerConfigStorage::loadAllConfigs(QList<ServerConfig>& configList)
 		QJsonObject jsonObject = objRef.toObject();
 		serverConfig.serverUrl = jsonObject["URL"].toString();
 		serverConfig.username = jsonObject["Username"].toString();
+		serverConfig.localUdpEndpoint = jsonObject["LocalUdpEndpoint"].toString();
 
 		QString encPassBase64 = jsonObject["Password"].toString();
 		QByteArray encPassBase64Bytes = encPassBase64.toUtf8();
@@ -73,8 +74,8 @@ bool ServerConfigStorage::saveAllConfigs(const QList<ServerConfig>& configList)
 		QJsonObject configObject;
 		configObject.insert("URL", QJsonValue::fromVariant(config.serverUrl));
 		configObject.insert("Username", QJsonValue::fromVariant(config.username));
+		configObject.insert("LocalUdpEndpoint", QJsonValue::fromVariant(config.localUdpEndpoint));
 
-		
 		QByteArray encryptedPasswordBytes;
 		QByteArray plainPasswordBytes = config.password.toUtf8();
 		if (!PlatformEncryption::encrypt(plainPasswordBytes, encryptedPasswordBytes, "password"))

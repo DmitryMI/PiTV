@@ -55,20 +55,10 @@ void Pipeline::handle_pipeline_message(GstMessage* msg)
 Pipeline::Pipeline(int port, WId windowHandle)
 {
 	gst_debug_set_active(true);
-	gst_debug_set_default_threshold(GST_LEVEL_DEBUG);
+	gst_debug_set_default_threshold(GST_LEVEL_WARNING);
 
-	GError* error;
-	QString launchStr = QString("udpsrc name=udpsrc port=%1 ! application/x-rtp,clock-rate=90000,payload=96 ! rtph264depay ! avdec_h264 ! glimagesink name=glimagesink").arg(port);
-
-	gst_pipeline = gst_parse_launch(launchStr.toStdString().c_str(), NULL);
-	Q_ASSERT(gst_pipeline);
-
-	gst_bus = gst_element_get_bus(gst_pipeline);
-	Q_ASSERT(gst_bus);
-	
-	GstElement* sink = gst_bin_get_by_name(GST_BIN(gst_pipeline), "glimagesink");
-	Q_ASSERT(sink);
-	gst_video_overlay_set_window_handle(GST_VIDEO_OVERLAY(sink), windowHandle);
+	this->port = port;
+	this->windowHandle = windowHandle;
 }
 
 Pipeline::~Pipeline()
@@ -104,8 +94,26 @@ Pipeline::~Pipeline()
 	}
 }
 
+bool Pipeline::constructPipeline()
+{
+	GError* error;
+	QString launchStr = QString("udpsrc name=udpsrc port=%1 ! application/x-rtp,clock-rate=90000,payload=96 ! rtph264depay ! avdec_h264 ! glimagesink name=glimagesink").arg(port);
+
+	gst_pipeline = gst_parse_launch(launchStr.toStdString().c_str(), NULL);
+	Q_ASSERT(gst_pipeline);
+
+	gst_bus = gst_element_get_bus(gst_pipeline);
+	Q_ASSERT(gst_bus);
+
+	GstElement* sink = gst_bin_get_by_name(GST_BIN(gst_pipeline), "glimagesink");
+	Q_ASSERT(sink);
+	gst_video_overlay_set_window_handle(GST_VIDEO_OVERLAY(sink), windowHandle);
+	return gst_pipeline;
+}
+
 void Pipeline::setPort(int port)
 {
+	Q_ASSERT(gst_pipeline);
 	GstElement* udpsrc = gst_bin_get_by_name(GST_BIN(gst_pipeline), "udpsrc");
 	Q_ASSERT(udpsrc);
 	g_object_set(udpsrc, "port", port, NULL);
@@ -113,6 +121,8 @@ void Pipeline::setPort(int port)
 
 bool Pipeline::startPipeline()
 {
+	Q_ASSERT(gst_pipeline);
+
 	GstStateChangeReturn set_state_code = gst_element_set_state(gst_pipeline, GST_STATE_PLAYING);
 
 	if (set_state_code == GST_STATE_CHANGE_FAILURE)
@@ -127,6 +137,8 @@ bool Pipeline::startPipeline()
 
 bool Pipeline::stopPipeline()
 {
+	Q_ASSERT(gst_pipeline);
+
 	GstStateChangeReturn set_state_code = gst_element_set_state(gst_pipeline, GST_STATE_NULL);
 
 	if (set_state_code == GST_STATE_CHANGE_FAILURE)
@@ -141,6 +153,8 @@ bool Pipeline::stopPipeline()
 
 bool Pipeline::isPipelinePlaying() const
 {
+	Q_ASSERT(gst_pipeline);
+
 	GstState current;
 	GstState pending;
 	if (gst_element_get_state(gst_pipeline, &current, &pending, 100) == GstStateChangeReturn::GST_STATE_CHANGE_FAILURE)

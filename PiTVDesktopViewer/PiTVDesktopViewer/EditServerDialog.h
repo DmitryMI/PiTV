@@ -16,10 +16,12 @@ public:
     QString getServerAddress() const;
     QString getUsername() const;
     QString getPassword() const;
+    QString getLocalUdpEndpoint() const;
 
     void setServerAddress(const QString& str);
     void setUsername(const QString& str);
     void setPassword(const QString& str);
+    void setLocalUdpEndpoint(const QString& str);
 
 public slots:
 };

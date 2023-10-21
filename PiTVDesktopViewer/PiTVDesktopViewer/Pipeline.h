@@ -8,6 +8,8 @@ class Pipeline
 private:
 	GstElement* gst_pipeline = nullptr;
 	GstBus* gst_bus = nullptr;
+	int port;
+	WId windowHandle;
 
 private:
 	void handle_pipeline_message(GstMessage* msg);
@@ -18,6 +20,8 @@ public:
 	Pipeline& operator=(const Pipeline&) = delete;
 	Pipeline(const Pipeline& copy) = delete;
 	Pipeline() = delete;
+
+	bool constructPipeline();
 
 	void setPort(int port);
 	bool startPipeline();
