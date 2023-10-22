@@ -367,7 +367,7 @@ PiTvServer::PiTvServer(const PiTvServerConfig& config, std::shared_ptr<Pipeline>
 
 	if (tls_cert_value.empty() || tls_key_value.empty())
 	{
-		config.logger_ptr->warn("Server TLS configuration is no complete, HTTPS communication will not be possible!");
+		config.logger_ptr->warn("Server TLS configuration is incomplete, HTTPS communication will not be possible!");
 	}
 }
 
@@ -385,7 +385,7 @@ bool PiTvServer::start_server()
 	}
 	is_server_running = true;
 
-	if (!user_db->connection_ok())
+	if (!user_db || !user_db->connection_ok())
 	{
 		config.logger_ptr->error("User DB: connection failed!");
 		return false;
