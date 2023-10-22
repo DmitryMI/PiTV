@@ -17,7 +17,6 @@ EditServerDialog::EditServerDialog(QWidget* parent)
 	connect(ui.caOpenButton, &QPushButton::clicked,  this, &EditServerDialog::onOpenClicked);
 	connect(ui.clientKeyOpenButton, &QPushButton::clicked, this, &EditServerDialog::onOpenClicked);
 	connect(ui.clientCertOpenButton, &QPushButton::clicked, this, &EditServerDialog::onOpenClicked);
-
 }
 
 EditServerDialog::~EditServerDialog()

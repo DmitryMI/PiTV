@@ -6,6 +6,8 @@
 #include <QPushButton>
 #include <QFile>
 #include <QTimer>
+#include <QFileInfo>
+#include <QSslKey>
 #include "EditServerDialog.h"
 #include "ServerConfig.h"
 #include "ServerConfigStorage.h"
@@ -85,22 +87,76 @@ void PiTVDesktopViewer::onDisconnectClicked()
 	disconnectFromCamera(activeLeaseRequest);
 }
 
-void PiTVDesktopViewer::requestServerStatus(const ServerStatusRequest& request)
+bool PiTVDesktopViewer::requestServerStatus(const ServerStatusRequest& request)
 {
 	QUrl url(request.serverConfig.serverUrl + "/status");
-	QNetworkReply* reply = netAccessManager.get(QNetworkRequest(url));
+
+	QNetworkRequest netRequest = QNetworkRequest(url);
+	QSslConfiguration sslConfig;
+
+	if (!QFileInfo(request.serverConfig.tlsCaPath).exists())
+	{
+		return false;
+	}
+
+	QSslCertificate ca = loadCertificate(request.serverConfig.tlsCaPath);
+	sslConfig.addCaCertificate(ca);
+
+	if (QFileInfo(request.serverConfig.tlsClientCertPath).exists())
+	{
+		QSslCertificate cert = loadCertificate(request.serverConfig.tlsClientCertPath);
+		sslConfig.setLocalCertificate(cert);
+	}
+
+	if (QFileInfo(request.serverConfig.tlsClientKeyPath).exists())
+	{
+		QSslKey key = loadKey(request.serverConfig.tlsClientKeyPath);
+		sslConfig.setPrivateKey(key);
+	}
+
+	netRequest.setSslConfiguration(sslConfig);
+
+	QNetworkReply* reply = netAccessManager.get(netRequest);
 	Q_ASSERT(reply);
 
 	connect(reply, &QNetworkReply::finished, this, [this, reply]() { serverStatusHttpRequestFinished(reply); });
 #if QT_CONFIG(ssl)
-	connect(reply, &QNetworkReply::sslErrors, this, [this, reply]() { serverStatusSslErrors(reply); });
+	connect(reply, &QNetworkReply::sslErrors, this, [this, reply](QList<QSslError> errors) {this->serverStatusSslErrors(reply, errors); });
 #endif
 
 	serverStatusReplyMap[reply] = request;
+
+	return true;
 }
 
-void PiTVDesktopViewer::requestCameraLease(const CameraLeaseRequest& request)
+bool PiTVDesktopViewer::requestCameraLease(const CameraLeaseRequest& request)
 {
+	QUrl url(request.serverConfig.serverUrl + "/camera");
+	QNetworkRequest netRequest = QNetworkRequest(url);
+	QSslConfiguration sslConfig;
+
+	if (!QFileInfo(request.serverConfig.tlsCaPath).exists())
+	{
+		return false;
+	}
+
+	QSslCertificate ca = loadCertificate(request.serverConfig.tlsCaPath);
+	sslConfig.addCaCertificate(ca);
+
+	if (QFileInfo(request.serverConfig.tlsClientCertPath).exists())
+	{
+		QSslCertificate cert = loadCertificate(request.serverConfig.tlsClientCertPath);
+		sslConfig.setLocalCertificate(cert);
+	}
+
+	if (QFileInfo(request.serverConfig.tlsClientKeyPath).exists())
+	{
+		QSslKey key = loadKey(request.serverConfig.tlsClientKeyPath);
+		sslConfig.setPrivateKey(key);
+	}
+
+	netRequest.setSslConfiguration(sslConfig);
+
 	QJsonDocument requestJsonDoc;
 	QJsonObject jsonObj = requestJsonDoc.object();
 	jsonObj["lease_guid"] = request.leaseGuid;
@@ -114,8 +170,6 @@ void PiTVDesktopViewer::requestCameraLease(const CameraLeaseRequest& request)
 	QByteArray data = creds.toLocal8Bit().toBase64();
 	QString headerData = "Basic " + data;
 
-	QUrl url(request.serverConfig.serverUrl + "/camera");
-	QNetworkRequest netRequest(url);
 	netRequest.setRawHeader("Authorization", headerData.toLocal8Bit());
 	netRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 	QNetworkReply* reply = netAccessManager.post(netRequest, postPayload);
@@ -124,6 +178,7 @@ void PiTVDesktopViewer::requestCameraLease(const CameraLeaseRequest& request)
 	connect(reply, &QNetworkReply::finished, this, [this, reply]() { cameraLeaseHttpRequestFinished(reply); });
 
 	cameraLeaseReplyMap[reply] = request;
+	return true;
 }
 
 void PiTVDesktopViewer::disconnectFromCamera(const CameraLeaseRequest& request)
@@ -228,8 +283,23 @@ void PiTVDesktopViewer::serverStatusHttpRequestFinished(QNetworkReply* reply)
 	reply->deleteLater();
 }
 
-void PiTVDesktopViewer::serverStatusSslErrors(QNetworkReply* reply)
+void PiTVDesktopViewer::serverStatusSslErrors(QNetworkReply* reply, const QList<QSslError>& errors)
 {
+	QString errorString;
+	for (const QSslError& error : errors)
+	{
+		if (!errorString.isEmpty())
+			errorString += '\n';
+		errorString += error.errorString();
+	}
+
+	if (QMessageBox::warning(this, tr("TLS Errors"),
+		tr("One or more TLS errors has occurred:\n%1").arg(errorString),
+		QMessageBox::Ignore | QMessageBox::Abort)
+		== QMessageBox::Ignore)
+	{
+		reply->ignoreSslErrors();
+	}
 }
 
 void PiTVDesktopViewer::cameraLeaseHttpRequestFinished(QNetworkReply* reply)
@@ -361,6 +431,34 @@ void PiTVDesktopViewer::connectToCamera(const CameraLeaseRequest& request)
 	activeLeaseRequest = request;
 	requestCameraLease(activeLeaseRequest);
 	leaseUpdateTimer->start(5000);
+}
+
+QSslKey PiTVDesktopViewer::loadKey(const QString& path) const
+{
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly))
+	{
+		return QSslKey();
+	}
+
+	QByteArray data = file.readAll();
+	file.close();
+
+	return QSslKey(data, QSsl::KeyAlgorithm::Rsa);
+}
+
+QSslCertificate PiTVDesktopViewer::loadCertificate(const QString& path) const
+{
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly))
+	{
+		return QSslCertificate();
+	}
+
+	QByteArray data = file.readAll();
+	file.close();
+
+	return QSslCertificate(data);
 }
 
 void PiTVDesktopViewer::onExitClicked()

@@ -60,6 +60,9 @@ private:
     bool is_server_running = false;
     bool system_stats_ok = false;
     bool system_stats_cpu_temp_ok = false;
+    std::string tls_ca_value;
+    std::string tls_cert_value;
+    std::string tls_key_value;
 
     mg_mgr mongoose_event_manager;
     PiTvServerConfig config;
@@ -86,6 +89,12 @@ private:
     static std::string addr_to_str(const mg_addr& addr);
 
     static std::string gen_random_string(const int len);
+
+    const char* get_tls_ca() const;
+    const char* get_tls_cert() const;
+    const char* get_tls_key() const;
+
+    bool read_file(const std::string& file_name, std::string& out) const;
 
 public:
     const static int guid_length;

@@ -1,3 +1,4 @@
+#include <fstream>
 #include "PiTvServer.h"
 #include "SystemStats.h"
 
@@ -226,10 +227,27 @@ void PiTvServer::server_https_handler(mg_connection* c, int ev, void* ev_data, v
 
 	if (ev == MG_EV_ACCEPT && fn_data != NULL)
 	{
-		struct mg_tls_opts opts = {
-			.ca = mg_str(server->config.tls_ca_str.c_str()),
-			.cert = mg_str(server->config.tls_pub_str.c_str()),
-			.key = mg_str(server->config.tls_key_str.c_str()) };
+		size_t size = 0;
+		char* ca_data = mg_file_read(&mg_fs_posix, server->config.tls_ca_str.c_str(), &size);
+		char* cert_data = mg_file_read(&mg_fs_posix, server->config.tls_pub_str.c_str(), &size);
+		char* key_data = mg_file_read(&mg_fs_posix, server->config.tls_key_str.c_str(), &size);
+
+		struct mg_tls_opts opts = 
+		{
+			.cert = mg_str(server->tls_cert_value.c_str()),
+			.key = mg_str(server->tls_key_value.c_str()) 
+		};
+
+		if (!server->tls_ca_value.empty())
+		{
+			server->config.logger_ptr->info("CA set, two-way TLS enabled");
+			opts.ca = mg_str(server->tls_ca_value.c_str());
+		}
+		else
+		{
+			server->config.logger_ptr->info("CA not set, two-way TLS disabled");
+		}
+
 		mg_tls_init(c, &opts);
 	}
 	else
@@ -270,7 +288,8 @@ PiTvServer::PiTvServer(const PiTvServerConfig& config, std::shared_ptr<Pipeline>
 
 	mg_log_set_fn(&PiTvServer::mongoose_log_handler, this);
 
-	log_level = config.logger_ptr->level();
+	// log_level = config.logger_ptr->level();
+	log_level = spdlog::level::level_enum::debug;
 	if (log_level == spdlog::level::off)
 	{
 		mg_log_set(0);
@@ -309,6 +328,38 @@ PiTvServer::PiTvServer(const PiTvServerConfig& config, std::shared_ptr<Pipeline>
 
 	system_stats_ok = system_stats_init();
 	system_stats_cpu_temp_ok = system_stats_has_temp_cpu();
+
+	if (!config.tls_ca_str.empty())
+	{
+		if (!read_file(config.tls_ca_str, tls_ca_value))
+		{
+			config.logger_ptr->error("Failed to load CA, file {} does not exist!", config.tls_ca_str);
+			tls_ca_value = "";
+		}
+	}
+
+	if (!config.tls_pub_str.empty())
+	{
+		if (!read_file(config.tls_pub_str, tls_cert_value))
+		{
+			config.logger_ptr->error("Failed to load server certificate, file {} does not exist!", config.tls_pub_str);
+			tls_cert_value = "";
+		}
+	}
+
+	if (!config.tls_key_str.empty())
+	{
+		if (!read_file(config.tls_key_str, tls_key_value))
+		{
+			config.logger_ptr->error("Failed to load server private key, file {} does not exist!", config.tls_key_str);
+			tls_cert_value = "";
+		}
+	}
+
+	if (tls_cert_value.empty() || tls_key_value.empty())
+	{
+		config.logger_ptr->warn("Server TLS configuration is no complete, HTTPS communication will not be possible!");
+	}
 }
 
 PiTvServer::~PiTvServer()
@@ -510,4 +561,18 @@ PiTvServerStatus PiTvServer::get_server_status() const
 	}
 
 	return status;
+}
+
+bool PiTvServer::read_file(const std::string& path, std::string& out) const
+{
+	if (!std::filesystem::exists(path))
+	{
+		return false;
+	}
+
+	std::ifstream t(path);
+	std::stringstream buffer;
+	buffer << t.rdbuf();
+	out = buffer.str();
+	return true;
 }

@@ -72,12 +72,12 @@ private:
 
     CameraLeaseRequest activeLeaseRequest;
 
-    void requestServerStatus(const ServerStatusRequest& request);
-    void requestCameraLease(const CameraLeaseRequest& request);
+    bool requestServerStatus(const ServerStatusRequest& request);
+    bool requestCameraLease(const CameraLeaseRequest& request);
     void disconnectFromCamera(const CameraLeaseRequest& request);
 
     void serverStatusHttpRequestFinished(QNetworkReply* reply);
-    void serverStatusSslErrors(QNetworkReply* reply);
+    void serverStatusSslErrors(QNetworkReply* reply, const QList<QSslError>& errors);
 
     void cameraLeaseHttpRequestFinished(QNetworkReply* reply);
     void cameraEndLeaseRequestFinished(QNetworkReply* reply);
@@ -89,6 +89,9 @@ private:
     void saveServerConfigs();
 
     void connectToCamera(const CameraLeaseRequest& request);
+
+    QSslCertificate loadCertificate(const QString& path) const;
+    QSslKey loadKey(const QString& path) const;
 
 public slots:
     void onDisconnectClicked();

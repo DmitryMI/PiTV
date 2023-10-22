@@ -1,4 +1,5 @@
-﻿set(MONGOOSE_ROOT "C:/FilesAndFolders/mongoose" CACHE STRING "Path to Mongoose Server source code")
+﻿set(OPENSSL_ROOT "C:/FilesAndFolders/mongoose" CACHE STRING "Path to Mongoose Server source code")
+set(MONGOOSE_ROOT "C:/FilesAndFolders/OpenSSL-Win64" CACHE STRING "Path to OpenSSL installation")
 set(BOOST_ROOT "C:/FilesAndFolders/boost_1_80_0" CACHE STRING "Path to boost source code")
 set(SPDLOG_ROOT "C:/FilesAndFolders/spdlog/build" CACHE STRING "Path to spdlog build")
 
@@ -32,6 +33,12 @@ target_link_libraries(${PROJECT_NAME}
 	PkgConfig::gstreamer-video
 )
 
+# OpenSSL
+set(OPENSSL_USE_STATIC_LIBS TRUE)
+find_package(OpenSSL REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::applink)
+target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+
 # Mongoose
 if(DEFINED CACHE{MONGOOSE_ROOT})
 	message(STATUS "Using MONGOOSE_ROOT from cmake cache: ${MONGOOSE_ROOT}")
@@ -44,6 +51,10 @@ else()
 	message(STATUS "MONGOOSE_ROOT not set!" )
 endif()
 target_sources (${PROJECT_NAME} PRIVATE "${MONGOOSE_ROOT}/mongoose.h" "${MONGOOSE_ROOT}/mongoose.c")
+
+# target_compile_definitions(${PROJECT_NAME} PUBLIC MG_TLS=MG_TLS_MBED)
+target_compile_definitions(${PROJECT_NAME} PUBLIC MG_TLS=MG_TLS_OPENSSL)
+
 
 # Boost
 set(Boost_USE_STATIC_LIBS ON)
