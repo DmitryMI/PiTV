@@ -8,12 +8,16 @@ message(STATUS ${current_source_dir_name})
 
 project(${current_source_dir_name})
 
-add_executable (${PROJECT_NAME} "PiTvMain.cpp" "PiTvMain.h" "PiTvServer.h" "PiTvServer.cpp" "video/Pipeline.h" "video/Pipeline.cpp" "accounts/UserDb.h" "accounts/UserDbCsv.h" "accounts/UserDbCsv.cpp" "accounts/UserDb.cpp" "SystemStats.h")
+add_executable (${PROJECT_NAME} "PiTvMain.cpp"  "PiTvServer.h" "PiTvServer.cpp" "video/Pipeline.h" "video/Pipeline.cpp" "accounts/UserDb.h" "accounts/UserDbCsv.h" "accounts/UserDbCsv.cpp" "accounts/UserDb.cpp" "SystemStats.h")
 
 set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 message(STATUS "Project name deduced to be ${PROJECT_NAME}")
+
+if (POLICY CMP0144)
+	cmake_policy(SET CMP0144 NEW)
+endif()
 
 
 # Gstreamer
