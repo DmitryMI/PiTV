@@ -1,4 +1,5 @@
 #include <QtWidgets/QDialog>
+#include "ServerConfig.h"
 #include "ui_EditServerDialog.h"
 
 class EditServerDialog : public QDialog
@@ -13,6 +14,9 @@ private:
     Ui::EditServerDialogClass ui;
 
 public:
+    void setFromServerConfig(const ServerConfig& config);
+    void writeToServerConfig(ServerConfig& config) const;
+
     QString getServerAddress() const;
     QString getUsername() const;
     QString getPassword() const;
@@ -24,4 +28,5 @@ public:
     void setLocalUdpEndpoint(const QString& str);
 
 public slots:
+    void onOpenClicked();
 };

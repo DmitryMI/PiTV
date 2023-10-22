@@ -268,11 +268,9 @@ void PiTVDesktopViewer::cameraEndLeaseRequestFinished(QNetworkReply* reply)
 
 void PiTVDesktopViewer::updateServerListItemText(QListWidgetItem* item, bool isInitialized, QString errorStr) const
 {
-	QMap<QString, QVariant> serverDataMap = item->data(Qt::UserRole).toMap();
+	ServerConfig serverConfig = qvariant_cast<ServerConfig>(item->data(Qt::UserRole));
 
-	QString text = (serverDataMap["serverAddress"].toString() + " " +
-		"(" + serverDataMap["username"].toString() + ")"
-		);
+	QString text = (serverConfig.serverUrl + " " + "(" + serverConfig.username + ")");
 
 	if (isInitialized)
 	{
@@ -307,14 +305,10 @@ void PiTVDesktopViewer::loadServerConfigs()
 
 	for (const ServerConfig& config : serverConfigs)
 	{
-		QMap<QString, QVariant> serverDataMap;
-		serverDataMap["serverAddress"] = config.serverUrl;
-		serverDataMap["username"] = config.username;
-		serverDataMap["password"] = config.password;
-		serverDataMap["localUdpEndpoint"] = config.localUdpEndpoint;
-
 		QListWidgetItem* item = new QListWidgetItem(ui.serverListWidget);
-		item->setData(Qt::UserRole, serverDataMap);
+		QVariant itemVariant;
+		itemVariant.setValue(config);
+		item->setData(Qt::UserRole, itemVariant);
 		item->setIcon(QIcon(":/icons/unknown.png"));
 		updateServerListItemText(item, false, "");
 
@@ -332,15 +326,9 @@ void PiTVDesktopViewer::saveServerConfigs()
 	for (int i = 0; i < itemNum; i++)
 	{
 		QListWidgetItem* serverConfigItem = ui.serverListWidget->item(i);
-		QMap<QString, QVariant> serverDataMap = serverConfigItem->data(Qt::UserRole).toMap();
-		ServerConfig serverConfig;
-		serverConfig.serverUrl = serverDataMap["serverAddress"].toString();
-		serverConfig.username = serverDataMap["username"].toString();
-		serverConfig.password = serverDataMap["password"].toString();
-		serverConfig.localUdpEndpoint = serverDataMap["localUdpEndpoint"].toString();
+		ServerConfig serverConfig = qvariant_cast<ServerConfig>(serverConfigItem->data(Qt::UserRole));
 		serverConfigs.append(serverConfig);
 	}
-
 	ServerConfigStorage storage("servers.json");
 	if (!storage.saveAllConfigs(serverConfigs))
 	{
@@ -392,14 +380,13 @@ void PiTVDesktopViewer::onAddServerClicked()
 		return;
 	}
 
-	QMap<QString, QVariant> serverDataMap;
-	serverDataMap["serverAddress"] = editServerDialog->getServerAddress();
-	serverDataMap["username"] = editServerDialog->getUsername();
-	serverDataMap["password"] = editServerDialog->getPassword();
-	serverDataMap["localUdpEndpoint"] = editServerDialog->getPassword();
+	QVariant itemDataVariant;
+	ServerConfig config = qvariant_cast<ServerConfig>(itemDataVariant);
+	editServerDialog->writeToServerConfig(config);
+	itemDataVariant.setValue(config);
 
 	QListWidgetItem* item = new QListWidgetItem(ui.serverListWidget);
-	item->setData(Qt::UserRole, serverDataMap);
+	item->setData(Qt::UserRole, itemDataVariant);
 	item->setIcon(QIcon(":/icons/unknown.png"));
 	updateServerListItemText(item, false, "");
 
@@ -422,13 +409,12 @@ void PiTVDesktopViewer::onEditServerClicked()
 	}
 
 	QListWidgetItem* item = selectedItems[0];
-	QMap<QString, QVariant> serverDataMap = item->data(Qt::UserRole).toMap();
+
+	QVariant itemDataVariant = item->data(Qt::UserRole);
+	ServerConfig config = qvariant_cast<ServerConfig>(itemDataVariant);
 
 	EditServerDialog* editServerDialog = new EditServerDialog();
-	editServerDialog->setServerAddress(serverDataMap["serverAddress"].toString());
-	editServerDialog->setUsername(serverDataMap["username"].toString());
-	editServerDialog->setPassword(serverDataMap["password"].toString());
-	editServerDialog->setLocalUdpEndpoint(serverDataMap["localUdpEndpoint"].toString());
+	editServerDialog->setFromServerConfig(config);
 
 	editServerDialog->setWindowModality(Qt::ApplicationModal);
 	editServerDialog->exec();
@@ -438,12 +424,10 @@ void PiTVDesktopViewer::onEditServerClicked()
 		return;
 	}
 
-	serverDataMap["serverAddress"] = editServerDialog->getServerAddress();
-	serverDataMap["username"] = editServerDialog->getUsername();
-	serverDataMap["password"] = editServerDialog->getPassword();
-	serverDataMap["localUdpEndpoint"] = editServerDialog->getLocalUdpEndpoint();
-
-	item->setData(Qt::UserRole, serverDataMap);
+	editServerDialog->writeToServerConfig(config);
+	
+	itemDataVariant.setValue(config);
+	item->setData(Qt::UserRole, itemDataVariant);
 	item->setIcon(QIcon(":/icons/unknown.png"));
 	updateServerListItemText(item, false, "");
 
@@ -472,12 +456,9 @@ void PiTVDesktopViewer::onRemoveServerClicked()
 void PiTVDesktopViewer::onServerDoubleClicked(QListWidgetItem* item)
 {
 	CameraLeaseRequest request;
-	QMap<QString, QVariant> serverDataMap = item->data(Qt::UserRole).toMap();
-	ServerConfig activeServerConfig;
-	activeServerConfig.serverUrl = serverDataMap["serverAddress"].toString();
-	activeServerConfig.username = serverDataMap["username"].toString();
-	activeServerConfig.password = serverDataMap["password"].toString();
-	QString udpEndpoint = serverDataMap["localUdpEndpoint"].toString();
+	ServerConfig activeServerConfig = qvariant_cast<ServerConfig>(item->data(Qt::UserRole));
+
+	QString udpEndpoint = activeServerConfig.localUdpEndpoint;
 	auto items = udpEndpoint.split(":");
 	request.udpAddress = items[0];
 	if (items.size() == 2)

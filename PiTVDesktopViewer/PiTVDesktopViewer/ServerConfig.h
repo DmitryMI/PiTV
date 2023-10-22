@@ -8,6 +8,9 @@ public:
 	QString username;
 	QString password;
 	QString localUdpEndpoint;
+	QString tlsClientKeyPath;
+	QString tlsClientCertPath;
+	QString tlsCaPath;
 
 	ServerConfig(QString url, QString username, QString password, QString localUdpEndpoint)
 	{
@@ -25,3 +28,5 @@ public:
 		this->localUdpEndpoint = localUdpEndpoint;
 	}
 };
+
+Q_DECLARE_METATYPE(ServerConfig);

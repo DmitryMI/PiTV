@@ -37,6 +37,9 @@ bool ServerConfigStorage::loadAllConfigs(QList<ServerConfig>& configList)
 		serverConfig.serverUrl = jsonObject["URL"].toString();
 		serverConfig.username = jsonObject["Username"].toString();
 		serverConfig.localUdpEndpoint = jsonObject["LocalUdpEndpoint"].toString();
+		serverConfig.tlsCaPath = jsonObject["TlsCaPath"].toString();
+		serverConfig.tlsClientCertPath = jsonObject["TlsClientCertPath"].toString();
+		serverConfig.tlsClientKeyPath = jsonObject["TlsClientKeyPathPath"].toString();
 
 		QString encPassBase64 = jsonObject["Password"].toString();
 		QByteArray encPassBase64Bytes = encPassBase64.toUtf8();
@@ -75,6 +78,9 @@ bool ServerConfigStorage::saveAllConfigs(const QList<ServerConfig>& configList)
 		configObject.insert("URL", QJsonValue::fromVariant(config.serverUrl));
 		configObject.insert("Username", QJsonValue::fromVariant(config.username));
 		configObject.insert("LocalUdpEndpoint", QJsonValue::fromVariant(config.localUdpEndpoint));
+		configObject.insert("TlsCaPath", QJsonValue::fromVariant(config.tlsCaPath));
+		configObject.insert("TlsClientCertPath", QJsonValue::fromVariant(config.tlsClientCertPath));
+		configObject.insert("TlsClientKeyPathPath", QJsonValue::fromVariant(config.tlsClientKeyPath));
 
 		QByteArray encryptedPasswordBytes;
 		QByteArray plainPasswordBytes = config.password.toUtf8();
@@ -95,6 +101,7 @@ bool ServerConfigStorage::saveAllConfigs(const QList<ServerConfig>& configList)
 	QFile file(databaseFilePath);
 	if (file.open(QIODevice::ReadWrite))
 	{
+		file.resize(0);
 		QTextStream stream(&file);
 		stream << doc.toJson();
 		file.close();
