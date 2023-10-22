@@ -177,6 +177,9 @@ int main(int argc, char** argv)
 				return 1;
 			}
 			po::store(po::parse_config_file(config_path.c_str(), desc), vm);
+			std::filesystem::path path(config_path);
+
+			std::filesystem::current_path(path.parent_path());
 		}
 
 		po::notify(vm);
