@@ -308,6 +308,10 @@ std::string Pipeline::get_recording_full_path() const
 GstElement* Pipeline::make_streaming_subpipe()
 {
 	std::string bin_name = std::string("rtp-bin");
+
+	GstElement* streaming_queue = gst_element_factory_make("queue", NULL);
+	assert(streaming_queue);
+
 	GstElement* bin = gst_bin_new(bin_name.c_str());
 	assert(bin);
 
@@ -315,18 +319,19 @@ GstElement* Pipeline::make_streaming_subpipe()
 	GstElement* rtph264pay = gst_element_factory_make("rtph264pay", rtph264pay_name.c_str());
 	assert(rtph264pay);
 
+
 	GstElement* multiudpsink = gst_element_factory_make("multiudpsink", "multiudpsink");
 	assert(multiudpsink);
 
-	gst_bin_add_many(GST_BIN(bin), rtph264pay, multiudpsink, NULL);
+	gst_bin_add_many(GST_BIN(bin), streaming_queue, rtph264pay, multiudpsink, NULL);
 
-	gboolean link_ok = gst_element_link(rtph264pay, multiudpsink);
+	gboolean link_ok = gst_element_link_many(streaming_queue, rtph264pay, multiudpsink, NULL);
 	assert(link_ok);
 
-	GstPad* rtph264pay_sink = gst_element_get_static_pad(rtph264pay, "sink");
-	GstPad* sink_ghost = gst_ghost_pad_new("sink", rtph264pay_sink);
+	GstPad* sink = gst_element_get_static_pad(streaming_queue, "sink");
+	GstPad* sink_ghost = gst_ghost_pad_new("sink", sink);
 	gst_element_add_pad(bin, sink_ghost);
-	gst_object_unref(rtph264pay_sink);
+	gst_object_unref(sink);
 
 	return bin;
 }
