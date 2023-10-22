@@ -77,11 +77,12 @@ double system_stats_get_cpu_process()
 #endif
 
 #ifdef CM_UNIX
-#include "stdlib.h"
-#include "stdio.h"
-#include "string.h"
-#include "sys/times.h"
-#include "sys/vtimes.h"
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/times.h>
+#include <sys/vtimes.h>
+
 
 static unsigned long long lastTotalUser, lastTotalUserLow, lastTotalSys, lastTotalIdle;
 static clock_t lastCPU, lastSysCPU, lastUserCPU;
@@ -199,18 +200,24 @@ double system_stats_get_cpu_process()
 
 #endif
 
+#include <array>
+#include <string>
+#include <iostream>
+#include <memory>
+
 bool system_stats_has_temp_cpu()
 {
 #if CM_WIN32
     return false;
 #endif
 
-    return true;
+    return false;
 }
 
 double system_stats_get_temp_cpu()
 {
 #if CM_UNIX
+    /*
     std::array<char, 128> buffer;
     std::string result;
     std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd, "r"), pclose);
@@ -223,6 +230,8 @@ double system_stats_get_temp_cpu()
         result += buffer.data();
     }
     return result;
+    */
+    return 0;
 #endif
     return 0;
 }

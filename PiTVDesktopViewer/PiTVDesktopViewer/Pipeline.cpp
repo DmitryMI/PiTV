@@ -118,8 +118,10 @@ bool Pipeline::constructPipeline()
 	g_object_set(capsfilter, "caps", caps, NULL);
 	GstElement* rtph264depay = gst_element_factory_make("rtph264depay", "rtph264depay");
 	Q_ASSERT(rtph264depay);
+
 	GstElement* avdec_h264 = gst_element_factory_make("avdec_h264", "avdec_h264");
 	Q_ASSERT(avdec_h264);
+
 	GstElement* glimagesink = gst_element_factory_make("glimagesink", "glimagesink");
 	Q_ASSERT(glimagesink);
 

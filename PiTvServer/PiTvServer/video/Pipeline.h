@@ -3,6 +3,7 @@
 #include <string>
 #include <gst/gst.h>
 #include <spdlog/spdlog.h>
+#include <filesystem>
 
 struct PipelineConfig
 {

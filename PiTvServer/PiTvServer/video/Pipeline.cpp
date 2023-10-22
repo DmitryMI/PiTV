@@ -541,19 +541,24 @@ std::shared_ptr<spdlog::logger> Pipeline::logger() const
 GstElement* Pipeline::make_capturing_subpipe()
 {
 #ifdef CM_UNIX
+	GstElement* bin = gst_bin_new("video-source-bin");
+	assert(bin);
 
 	GstElement* source = gst_element_factory_make("libcamerasrc", "libcamerasrc");
 	if (!source)
 	{
-		return false;
+		gst_object_unref(bin);
+		return nullptr;
 	}
+	gst_bin_add(GST_BIN(bin), source);
 
 	GstElement* encoder = gst_element_factory_make("v4l2h264enc", "v4l2h264enc");
 	if (!encoder)
 	{
-		gst_object_unref(source);
-		return false;
+		gst_object_unref(bin);
+		return nullptr;
 	}
+	gst_bin_add(GST_BIN(bin), encoder);
 
 	GstStructure* encoder_extra = gst_structure_new("encoder_extra_controls",
 		"repeat_sequence_header", G_TYPE_INT, 1,
@@ -561,22 +566,19 @@ GstElement* Pipeline::make_capturing_subpipe()
 	);
 
 	g_object_set(encoder, "extra-controls", encoder_extra, NULL);
-	// gst_video_encoder_set_latency(GST_VIDEO_ENCODER(encoder), 0 * GST_MSECOND, 100 * GST_MSECOND);
 
 	GstElement* encoder_capsfilter = gst_element_factory_make("capsfilter", "encoder_caps");
 	if (!encoder_capsfilter)
 	{
-		gst_object_unref(source);
-		gst_object_unref(encoder);
-		return false;
+		gst_object_unref(bin);
+		return nullptr;
 	}
-
-	gst_bin_add_many(GST_BIN(pipeline), source, encoder, encoder_capsfilter, NULL);
+	gst_bin_add(GST_BIN(bin), encoder_capsfilter);
 
 	GstCaps* source_caps = gst_caps_new_simple("video/x-raw",
-		"width", G_TYPE_INT, data.video_width,
-		"height", G_TYPE_INT, data.video_height,
-		"framerate", GST_TYPE_FRACTION, data.framerate_high, data.framerate_low,
+		"width", G_TYPE_INT, config.video_width,
+		"height", G_TYPE_INT, config.video_height,
+		"framerate", GST_TYPE_FRACTION, config.video_fps_numerator, config.video_fps_denominator,
 		"format", G_TYPE_STRING, "YUY2",
 		"interlace-mode", G_TYPE_STRING, "progressive",
 
@@ -585,7 +587,8 @@ GstElement* Pipeline::make_capturing_subpipe()
 	if (!gst_element_link_filtered(source, encoder, source_caps))
 	{
 		GST_ERROR("Failed to link %s and %s!", GST_ELEMENT_NAME(source), GST_ELEMENT_NAME(encoder));
-		return false;
+		gst_object_unref(bin);
+		return nullptr;
 	}
 	gst_caps_unref(source_caps);
 
@@ -598,13 +601,18 @@ GstElement* Pipeline::make_capturing_subpipe()
 	if (!gst_element_link(encoder, encoder_capsfilter))
 	{
 		GST_ERROR("Failed to link %s and %s!", GST_ELEMENT_NAME(encoder), GST_ELEMENT_NAME(encoder_capsfilter));
-		return false;
+		gst_object_unref(bin);
+		return nullptr;
 	}
 	gst_caps_unref(encoder_caps);
 
-	out_src_element = encoder_capsfilter;
+	GstPad* encoder_capsfilter_src_pad = gst_element_get_static_pad(encoder_capsfilter, "src");
+	GstPad* src_ghost_pad = gst_ghost_pad_new("src", encoder_capsfilter_src_pad);
 
-	return true;
+	gst_element_add_pad(bin, src_ghost_pad);
+	g_object_unref(encoder_capsfilter_src_pad);
+
+	return bin;
 
 #elif CM_WIN32
 

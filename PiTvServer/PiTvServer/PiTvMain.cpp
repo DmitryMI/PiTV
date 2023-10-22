@@ -1,6 +1,4 @@
-﻿#pragma once
-
-#include <iostream>
+﻿#include <iostream>
 #include <boost/program_options.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/cfg/env.h>

@@ -1,17 +1,16 @@
-﻿set(MONGOOSE_ROOT "C:/FilesAndFolders/mongoose" CACHE STRING "Path to Mongoose Server source code" FORCE)
-set(BOOST_ROOT "C:/FilesAndFolders/boost_1_83_0" CACHE STRING "Path to boost source code" FORCE)
-set(SPDLOG_BUILD_ROOT "C:/FilesAndFolders/spdlog/build" CACHE STRING "Path to spdlog build" FORCE)
+﻿set(CONFIG_MONGOOSE_ROOT "C:/FilesAndFolders/mongoose" CACHE STRING "Path to Mongoose Server source code")
+set(CONFIG BOOST_ROOT "C:/FilesAndFolders/boost_1_83_0" CACHE STRING "Path to boost source code")
+set(CONFIG_SPDLOG_BUILD_ROOT "C:/FilesAndFolders/spdlog/build" CACHE STRING "Path to spdlog build")
 
 cmake_path(GET CMAKE_CURRENT_SOURCE_DIR FILENAME current_source_dir_name)
 message(STATUS ${current_source_dir_name})
 
 project(${current_source_dir_name})
 
-add_executable (${PROJECT_NAME} "PiTvMain.cpp" "PiTvMain.h" "${MONGOOSE_ROOT}/mongoose.h" "${MONGOOSE_ROOT}/mongoose.c" "PiTvServer.h" "PiTvServer.cpp" "video/Pipeline.h" "video/Pipeline.cpp" "accounts/UserDb.h" "accounts/UserDbCsv.h" "accounts/UserDbCsv.cpp" "accounts/UserDb.cpp" "SystemStats.h")
+add_executable (${PROJECT_NAME} "PiTvMain.cpp" "PiTvMain.h" "PiTvServer.h" "PiTvServer.cpp" "video/Pipeline.h" "video/Pipeline.cpp" "accounts/UserDb.h" "accounts/UserDbCsv.h" "accounts/UserDbCsv.cpp" "accounts/UserDb.cpp" "SystemStats.h")
 
-if (CMAKE_VERSION VERSION_GREATER 3.12)
-  set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 23)
-endif()
+set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 message(STATUS "Project name deduced to be ${PROJECT_NAME}")
 
@@ -28,6 +27,7 @@ pkg_search_module(gstreamer-app REQUIRED IMPORTED_TARGET gstreamer-app-1.0>=1.4)
 pkg_search_module(gstreamer-video REQUIRED IMPORTED_TARGET gstreamer-video-1.0>=1.4)
 
 target_link_libraries(${PROJECT_NAME}
+	PRIVATE
 	PkgConfig::gstreamer
 	PkgConfig::gstreamer-sdp
 	PkgConfig::gstreamer-app
@@ -36,42 +36,48 @@ target_link_libraries(${PROJECT_NAME}
 
 
 # Mongoose
-if(DEFINED CACHE{MONGOOSE_ROOT})
-	message(STATUS "Using MONGOOSE_ROOT from cmake cache: ${MONGOOSE_ROOT}")
-	target_include_directories(${PROJECT_NAME} PUBLIC "${MONGOOSE_ROOT}")
+
+if(DEFINED CACHE{CONFIG_MONGOOSE_ROOT})
+	message(STATUS "Using MONGOOSE_ROOT from cmake cache: ${CONFIG_MONGOOSE_ROOT}")
+	target_include_directories(${PROJECT_NAME} PUBLIC "${CONFIG_MONGOOSE_ROOT}")
+	set(MONGOOSE_ROOT ${CONFIG_MONGOOSE_ROOT})
 elseif(DEFINED ENV{MONGOOSE_ROOT})
 	message(STATUS "Using MONGOOSE_ROOT from environment variable: $ENV{MONGOOSE_ROOT}")
-	target_include_directories(${PROJECT_NAME} PUBLIC "$ENV{MONGOOSE_ROOT}")
+	target_include_directories(${PROJECT_NAME} PUBLIC "$ENV{CONFIG_MONGOOSE_ROOT}")
+	set(MONGOOSE_ROOT $ENV{CONFIG_MONGOOSE_ROOT})
 else()
-	message(FATAL_ERROR "MONGOOSE_ROOT not set!" )
+	message(STATUS "MONGOOSE_ROOT not set!" )
 endif()
+
+target_sources (${PROJECT_NAME} PRIVATE "${MONGOOSE_ROOT}/mongoose.h" "${MONGOOSE_ROOT}/mongoose.c")
 
 
 # Boost
-if(DEFINED CACHE{BOOST_ROOT})
-	message(STATUS "Using BOOST_ROOT from cmake cache: ${BOOST_ROOT}")
-	set(BOOST_ROOT_INTERNAL ${BOOST_ROOT})
+if(DEFINED CACHE{CONFIG_BOOST_ROOT})
+	message(STATUS "Using BOOST_ROOT from cmake cache: ${CONFIG_BOOST_ROOT}")
 elseif(DEFINED ENV{BOOST_ROOT})
-	message(STATUS "Using BOOST_ROOT from environment variable: $ENV{BOOST_ROOT}")
-	set(BOOST_ROOT_INTERNAL $ENV{BOOST_ROOT})
+	message(STATUS "Using BOOST_ROOT from environment variable: $ENV{CONFIG BOOST_ROOT}")
+	set(BOOST_ROOT $ENV{BOOST_ROOT})
 else()
-	message(FATAL_ERROR "BOOST_ROOT not set!" )
+	message(STATUS "BOOST_ROOT not set!" )
 endif()
 
-target_include_directories(${PROJECT_NAME} PUBLIC ${BOOST_ROOT_INTERNAL})
-target_link_directories(${PROJECT_NAME} PUBLIC "${BOOST_ROOT_INTERNAL}/stage/lib")
+FIND_PACKAGE( Boost 1.83 COMPONENTS program_options REQUIRED )
+INCLUDE_DIRECTORIES( ${Boost_INCLUDE_DIR} )
+
+TARGET_LINK_LIBRARIES( ${PROJECT_NAME} PRIVATE ${Boost_LIBRARIES} )
 
 
 # Spdlog
-if(DEFINED CACHE{SPDLOG_ROOT})
-	message(STATUS "Using SPDLOG_ROOT from cmake cache: ${SPDLOG_BUILD_ROOT}")
-	list(APPEND CMAKE_PREFIX_PATH ${SPDLOG_BUILD_ROOT})
+if(DEFINED CACHE{CONFIG_SPDLOG_BUILD_ROOT})
+	message(STATUS "Using SPDLOG_ROOT from cmake cache: ${CONFIG_SPDLOG_BUILD_ROOT}")
+	list(APPEND CMAKE_PREFIX_PATH ${CONFIG_SPDLOG_BUILD_ROOT})
 else()
-	message(FATAL_ERROR "SPDLOG_ROOT not set!")
+	message(STATUS "SPDLOG_ROOT not set!")
 endif()
 
 find_package(spdlog REQUIRED)
-target_link_libraries(${PROJECT_NAME} spdlog::spdlog)
+target_link_libraries(${PROJECT_NAME} PRIVATE spdlog::spdlog)
 
 
 if(WIN32)
