@@ -263,6 +263,7 @@ bool Pipeline::set_recording_full_path()
 	{
 		config.logger_ptr->warn("[format_location_handler] directory '{}' does not exist, will be created", config.recording_path);
 		std::filesystem::create_directories(config.recording_path);
+		recordings_path = config.recording_path;
 	}
 	else
 	{
