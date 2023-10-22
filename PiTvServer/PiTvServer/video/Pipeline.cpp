@@ -252,6 +252,29 @@ void Pipeline::bus_poll(int timeout_msec)
 	}
 }
 
+void Pipeline::bus_poll()
+{
+	if (!bus)
+	{
+		logger()->error("Cannot poll buss, it is nullptr!");
+		return;
+	}
+
+	logger()->debug("Polling bus {} for messages", GST_ELEMENT_NAME(bus));
+	GstMessage* message = gst_bus_pop_filtered(bus,
+		(GstMessageType)(
+			GST_MESSAGE_INFO |
+			GST_MESSAGE_WARNING |
+			GST_MESSAGE_ERROR |
+			GST_MESSAGE_EOS |
+			GST_MESSAGE_STATE_CHANGED));
+
+	if (message)
+	{
+		handle_pipeline_message(message);
+	}
+}
+
 bool Pipeline::set_recording_full_path()
 {
 	std::string recordings_path;
@@ -279,6 +302,8 @@ std::string Pipeline::get_recording_full_path() const
 {
 	return recording_full_path;
 }
+
+
 
 GstElement* Pipeline::make_streaming_subpipe()
 {

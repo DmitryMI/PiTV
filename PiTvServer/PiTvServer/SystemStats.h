@@ -204,6 +204,7 @@ double system_stats_get_cpu_process()
 #include <string>
 #include <iostream>
 #include <memory>
+#include <vector>
 
 bool system_stats_has_temp_cpu()
 {
@@ -211,16 +212,36 @@ bool system_stats_has_temp_cpu()
     return false;
 #endif
 
-    return false;
+    return true;
+}
+
+std::vector<std::string> split(const std::string& s, char seperator)
+{
+    std::vector<std::string> output;
+
+    std::string::size_type prev_pos = 0, pos = 0;
+
+    while ((pos = s.find(seperator, pos)) != std::string::npos)
+    {
+        std::string substring(s.substr(prev_pos, pos - prev_pos));
+
+        output.push_back(substring);
+
+        prev_pos = ++pos;
+    }
+
+    output.push_back(s.substr(prev_pos, pos - prev_pos)); // Last word
+
+    return output;
 }
 
 double system_stats_get_temp_cpu()
 {
 #if CM_UNIX
-    /*
+    
     std::array<char, 128> buffer;
     std::string result;
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd, "r"), pclose);
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen("vcgencmd measure_temp", "r"), pclose);
     if (!pipe)
     {
         throw std::runtime_error("popen() failed!");
@@ -229,9 +250,21 @@ double system_stats_get_temp_cpu()
     {
         result += buffer.data();
     }
-    return result;
-    */
-    return 0;
+
+    auto tokens = split(result, '=');
+    if (tokens.size() != 2)
+    {
+        throw std::runtime_error("Unexpected output from vcgencmd!");
+    }
+
+    std::string temp_str = tokens[1];
+    temp_str.pop_back();
+
+    double temp = std::stod(temp_str);
+
+    return temp;
+    
+
 #endif
     return 0;
 }

@@ -228,9 +228,6 @@ void PiTvServer::server_https_handler(mg_connection* c, int ev, void* ev_data, v
 	if (ev == MG_EV_ACCEPT && fn_data != NULL)
 	{
 		size_t size = 0;
-		char* ca_data = mg_file_read(&mg_fs_posix, server->config.tls_ca_str.c_str(), &size);
-		char* cert_data = mg_file_read(&mg_fs_posix, server->config.tls_pub_str.c_str(), &size);
-		char* key_data = mg_file_read(&mg_fs_posix, server->config.tls_key_str.c_str(), &size);
 
 		struct mg_tls_opts opts = 
 		{
@@ -329,30 +326,42 @@ PiTvServer::PiTvServer(const PiTvServerConfig& config, std::shared_ptr<Pipeline>
 	system_stats_ok = system_stats_init();
 	system_stats_cpu_temp_ok = system_stats_has_temp_cpu();
 
-	if (!config.tls_ca_str.empty())
+	if (!config.tls_ca_path.empty())
 	{
-		if (!read_file(config.tls_ca_str, tls_ca_value))
+		if (!read_file(config.tls_ca_path, tls_ca_value))
 		{
-			config.logger_ptr->error("Failed to load CA, file {} does not exist!", config.tls_ca_str);
+			config.logger_ptr->error("Failed to load CA, file {} does not exist!", config.tls_ca_path);
 			tls_ca_value = "";
 		}
-	}
-
-	if (!config.tls_pub_str.empty())
-	{
-		if (!read_file(config.tls_pub_str, tls_cert_value))
+		else
 		{
-			config.logger_ptr->error("Failed to load server certificate, file {} does not exist!", config.tls_pub_str);
-			tls_cert_value = "";
+			config.logger_ptr->info("CA loaded from file {}", config.tls_ca_path);
 		}
 	}
 
-	if (!config.tls_key_str.empty())
+	if (!config.tls_pub_path.empty())
 	{
-		if (!read_file(config.tls_key_str, tls_key_value))
+		if (!read_file(config.tls_pub_path, tls_cert_value))
 		{
-			config.logger_ptr->error("Failed to load server private key, file {} does not exist!", config.tls_key_str);
+			config.logger_ptr->error("Failed to load server certificate, file {} does not exist!", config.tls_pub_path);
 			tls_cert_value = "";
+		}
+		else
+		{
+			config.logger_ptr->info("Server Certificate loaded from file {}", config.tls_pub_path);
+		}
+	}
+
+	if (!config.tls_key_path.empty())
+	{
+		if (!read_file(config.tls_key_path, tls_key_value))
+		{
+			config.logger_ptr->error("Failed to load server private key, file {} does not exist!", config.tls_key_path);
+			tls_cert_value = "";
+		}
+		else
+		{
+			config.logger_ptr->info("Server private key loaded from file {}", config.tls_key_path);
 		}
 	}
 
@@ -385,11 +394,18 @@ bool PiTvServer::start_server()
 	for (auto http_addr : config.http_listeners)
 	{
 		mg_http_listen(&mongoose_event_manager, http_addr.c_str(), server_http_handler, this);
-		config.logger_ptr->info("Listening on {}", http_addr);
+		config.logger_ptr->warn("Listening on insecure address: {}. "
+			"It is strongly recommended to use HTTPS or send PiTV traffic through a secure VPN!", http_addr);
 	}
 
 	for (auto https_addr : config.https_listeners)
 	{
+		if (tls_cert_value.empty() || tls_key_value.empty())
+		{
+			config.logger_ptr->error("Failed to add HTTPS listener {}: Server TLS certificate configuration is incomplete", https_addr);
+			return false;
+		}
+
 		mg_http_listen(&mongoose_event_manager, https_addr.c_str(), server_https_handler, this);
 		config.logger_ptr->info("Listening on {}", https_addr);
 	}
@@ -567,6 +583,7 @@ bool PiTvServer::read_file(const std::string& path, std::string& out) const
 {
 	if (!std::filesystem::exists(path))
 	{
+		config.logger_ptr->error("Failed to read file {}, it does not exist", path);
 		return false;
 	}
 
@@ -574,5 +591,7 @@ bool PiTvServer::read_file(const std::string& path, std::string& out) const
 	std::stringstream buffer;
 	buffer << t.rdbuf();
 	out = buffer.str();
+	t.close();
+	config.logger_ptr->debug("Successfully read file {}", path);
 	return true;
 }

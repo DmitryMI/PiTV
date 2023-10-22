@@ -68,6 +68,7 @@ PiTVDesktopViewer::PiTVDesktopViewer(QWidget* parent)
 	connect(ui.removeServerButton, &QPushButton::clicked, this, &PiTVDesktopViewer::onRemoveServerClicked);
 	connect(ui.serverListWidget, &QListWidget::itemDoubleClicked, this, &PiTVDesktopViewer::onServerDoubleClicked);
 	connect(ui.actionExit, &QAction::triggered, this, &PiTVDesktopViewer::onExitClicked);
+	connect(ui.refreshServersButton, &QPushButton::clicked, this, &PiTVDesktopViewer::onServersRefreshClicked);
 
 	loadServerConfigs();
 }
@@ -286,14 +287,21 @@ void PiTVDesktopViewer::serverStatusHttpRequestFinished(QNetworkReply* reply)
 void PiTVDesktopViewer::serverStatusSslErrors(QNetworkReply* reply, const QList<QSslError>& errors)
 {
 	QString errorString;
+	int errorsNum = 0;
 	for (const QSslError& error : errors)
 	{
+		if (error.error() == QSslError::HostNameMismatch)
+		{
+			continue;
+		}
+		errorsNum++;
+
 		if (!errorString.isEmpty())
 			errorString += '\n';
 		errorString += error.errorString();
 	}
 
-	if (QMessageBox::warning(this, tr("TLS Errors"),
+	if (errorsNum == 0 || QMessageBox::warning(this, tr("TLS Errors"),
 		tr("One or more TLS errors has occurred:\n%1").arg(errorString),
 		QMessageBox::Ignore | QMessageBox::Abort)
 		== QMessageBox::Ignore)
@@ -616,5 +624,25 @@ void PiTVDesktopViewer::onPipelineConstructed(Pipeline* pipeline, const CameraLe
 	else
 	{
 		QMessageBox::critical(this, "Pipeline construction error", "Failed to construct the pipeline!", QMessageBox::StandardButton::Ok);
+	}
+}
+
+void PiTVDesktopViewer::onServersRefreshClicked()
+{
+	for (int i = 0; i < ui.serverListWidget->count(); i++)
+	{
+		QListWidgetItem* item = ui.serverListWidget->item(i);
+		Q_ASSERT(item);
+		QVariant data = item->data(Qt::UserRole);
+		ServerConfig config = qvariant_cast<ServerConfig>(data);
+		ServerStatusRequest statusRequest;
+		statusRequest.serverConfig = config;
+		statusRequest.serverListItem = item;
+		statusRequest.doUpdateStatusBar = false;
+		if (!requestServerStatus(statusRequest))
+		{
+			QMessageBox::critical(this, "Status request error", "Failed to send sever status request! Check server configuration!",
+				QMessageBox::StandardButton::Ok);
+		}
 	}
 }

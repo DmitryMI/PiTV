@@ -113,6 +113,7 @@ public:
 	bool pause_pipeline();
 	bool is_pipeline_running() const;
 	void bus_poll(int timeout_msec);
+	void bus_poll();
 
 	bool set_recording_full_path();
 	std::string get_recording_full_path() const;

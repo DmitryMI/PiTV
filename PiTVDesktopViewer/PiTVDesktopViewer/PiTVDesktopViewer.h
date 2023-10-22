@@ -103,4 +103,6 @@ public slots:
     void onPipelinePollTimerElapsed();
     void onLeaseUpdateTimerElapsed();
     void onPipelineConstructed(Pipeline* pipeline, const CameraLeaseRequest& request);
+    void onServersRefreshClicked();
 };
+

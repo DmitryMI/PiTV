@@ -13,9 +13,9 @@ struct PiTvServerConfig
 {
     std::shared_ptr<spdlog::logger> logger_ptr;
 
-    std::string tls_ca_str;
-    std::string tls_pub_str;
-    std::string tls_key_str;
+    std::string tls_ca_path;
+    std::string tls_pub_path;
+    std::string tls_key_path;
 
     std::vector<std::string> http_listeners;
     std::vector<std::string> https_listeners;

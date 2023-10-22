@@ -198,9 +198,9 @@ int main(int argc, char** argv)
 	server_config.logger_ptr = http_logger_ptr;
 	server_config.recording_path = vm["recording-path"].as<std::string>();
 	server_config.user_db = vm["user-db"].as<std::string>();
-	server_config.tls_ca_str = vm["tls-ca"].as<std::string>();
-	server_config.tls_pub_str = vm["tls-pub"].as<std::string>();
-	server_config.tls_key_str = vm["tls-key"].as<std::string>();
+	server_config.tls_ca_path = vm["tls-ca"].as<std::string>();
+	server_config.tls_pub_path = vm["tls-pub"].as<std::string>();
+	server_config.tls_key_path = vm["tls-key"].as<std::string>();
 
 	std::shared_ptr<Pipeline> pipeline = std::make_shared<Pipeline>(pipeline_config);
 
@@ -226,7 +226,7 @@ int main(int argc, char** argv)
 
 	while (true)
 	{
-		pipeline->bus_poll(1);
-		server->server_poll(1);
+		pipeline->bus_poll();
+		server->server_poll(250);
 	}
 }
