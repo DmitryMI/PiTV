@@ -11,7 +11,7 @@
         "CMAKE_C_COMPILER": "cl.exe",
         "CMAKE_CXX_COMPILER": "cl.exe",
         "CONFIG_MONGOOSE_ROOT": "C:/FilesAndFolders/mongoose",
-        "CONFIG_BOOST_ROOT": "C:/FilesAndFolders/boost_1_83_0",
+        "BOOST_ROOT": "C:/FilesAndFolders/boost_1_80_0",
         "CONFIG_SPDLOG_BUILD_ROOT": "C:/FilesAndFolders/spdlog/build"
       },
       "condition": {
