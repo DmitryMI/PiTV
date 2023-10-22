@@ -9,6 +9,7 @@
 #include <gst/gst.h>
 #include <chrono>
 #include <thread>
+#include <exception>
 
 #include "video/Pipeline.h"
 #include "PiTvServer.h"
@@ -49,7 +50,7 @@ bool get_log_fullname(std::string dir_name, std::string filename, bool force_mkd
 	return true;
 }
 
-std::shared_ptr<spdlog::sinks::rotating_file_sink_mt> create_rotating_log_sink(std::string dir_name, std::string file_name, bool force_mkdirs, int size= 1048576 * 5, int files_num=3)
+std::shared_ptr<spdlog::sinks::rotating_file_sink_mt> create_rotating_log_sink(std::string dir_name, std::string file_name, bool force_mkdirs, int size = 1048576 * 5, int files_num = 3)
 {
 	std::string filepath;
 	if (!get_log_fullname(dir_name, file_name, force_mkdirs, filepath))
@@ -140,6 +141,7 @@ int main(int argc, char** argv)
 
 	desc.add_options()
 		("help", "produce help message")
+		("config", po::value<std::string>(), "path to config file")
 		("user-db", po::value<std::string>()->default_value("usernames.txt"), "Path to CSV file in format username,password,role")
 		("tls-ca", po::value<std::string>()->default_value("ca.crt"), "Path to CA for TLS support")
 		("tls-pub", po::value<std::string>()->default_value("server.crt"), "Path to server public key for TLS support")
@@ -159,8 +161,31 @@ int main(int argc, char** argv)
 		;
 
 	po::variables_map vm;
-	po::store(po::parse_command_line(argc, argv, desc), vm);
-	po::notify(vm);
+
+	try
+	{
+		
+		po::store(po::parse_command_line(argc, argv, desc), vm);
+		po::notify(vm);
+
+		if (vm.count("config"))
+		{
+			std::string config_path = vm["config"].as<std::string>();
+			if (!std::filesystem::exists(config_path))
+			{
+				std::cout << "File " << config_path << " does not exist!" << std::endl;
+				return 1;
+			}
+			po::store(po::parse_config_file(config_path.c_str(), desc), vm);
+		}
+
+		po::notify(vm);
+	}
+	catch (std::exception& ex)
+	{
+		std::cerr << ex.what() << std::endl;
+		return 1;
+	}
 
 	if (vm.count("help"))
 	{
@@ -180,7 +205,7 @@ int main(int argc, char** argv)
 	spdlog::info("Logging set up.");
 
 	gst_init(&argc, &argv);
-	
+
 	PipelineConfig pipeline_config;
 	pipeline_config.logger_ptr = pipeline_logger_ptr;
 	pipeline_config.force_mkdirs = force_mkdirs;
