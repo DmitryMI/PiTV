@@ -153,7 +153,7 @@ int main(int argc, char** argv)
 		("video-height", po::value<int>()->default_value(640), "video height")
 		("video-fps-numerator", po::value<int>()->default_value(20), "video framerate numerator")
 		("video-fps-denominator", po::value<int>()->default_value(1), "video framerate denominator")
-		("recording-path", po::value<std::string>()->default_value("Recordings"), "path where to store recordings")
+		("recording-path", po::value<std::string>()->default_value("recordings"), "path where to store recordings")
 		("recording-segment-duration", po::value<int>()->default_value(3600), "duration of a single segment in seconds")
 		("recording-max-size", po::value<int>()->default_value(32 * 1024), "Maximum disk space for recordings in Megabytes")
 		;
