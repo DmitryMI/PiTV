@@ -10,9 +10,9 @@
       "cacheVariables": {
         "CMAKE_C_COMPILER": "cl.exe",
         "CMAKE_CXX_COMPILER": "cl.exe",
-        "CONFIG_MONGOOSE_ROOT": "C:/FilesAndFolders/mongoose",
+        "MONGOOSE_ROOT": "C:/FilesAndFolders/mongoose",
         "BOOST_ROOT": "C:/FilesAndFolders/boost_1_80_0",
-        "CONFIG_SPDLOG_BUILD_ROOT": "C:/FilesAndFolders/spdlog/build"
+        "SPDLOG_BUILD_ROOT": "C:/FilesAndFolders/spdlog/build"
       },
       "condition": {
         "type": "equals",
@@ -54,9 +54,9 @@
       "installDir": "${sourceDir}/out/install/${presetName}",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CONFIG_MONGOOSE_ROOT": "~/software/mongoose",
-        "CONFIG_BOOST_ROOT": "~/software/boost_1_83_0",
-        "CONFIG_SPDLOG_BUILD_ROOT": "~/software/spdlog/build"
+        "MONGOOSE_ROOT": "~/software/mongoose",
+        "BOOST_ROOT": "~/software/boost_1_83_0",
+        "SPDLOG_BUILD_ROOT": "~/software/spdlog/build"
       },
       "condition": {
         "type": "equals",

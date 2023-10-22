@@ -52,6 +52,15 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${Boost_INCLUDE_DIR} )
 target_link_libraries( ${PROJECT_NAME} PRIVATE ${Boost_LIBRARIES} )
 
 # Spdlog
+if(DEFINED CACHE{SPDLOG_ROOT})
+	message(STATUS "Using SPDLOG_ROOT from cmake cache: ${SPDLOG_ROOT}")
+	list(APPEND CMAKE_PREFIX_PATH ${SPDLOG_ROOT})
+elseif(DEFINED ENV{SPDLOG_ROOT})
+	message(STATUS "Using SPDLOG_ROOT from environment variable: $ENV{SPDLOG_ROOT}")
+	list(APPEND CMAKE_PREFIX_PATH $ENV{SPDLOG_ROOT})
+else()
+	message(STATUS "SPDLOG_ROOT not set!")
+endif()
 find_package(spdlog REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE spdlog::spdlog)
 
