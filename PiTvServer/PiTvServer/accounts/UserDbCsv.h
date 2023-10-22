@@ -24,4 +24,6 @@ public:
 	void set_csv_separator(std::string separator);
 
 	std::string get_csv_separator() const;
+
+	virtual bool connection_ok() const override;
 };

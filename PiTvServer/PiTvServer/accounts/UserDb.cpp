@@ -6,6 +6,11 @@ std::shared_ptr<UserData> UserDb::get_userdata(std::string username) const
 	return nullptr;
 }
 
+bool UserDb::connection_ok() const
+{
+	return false;
+}
+
 std::shared_ptr<UserDb> UserDb::userdb_factory(std::string userdb_str, std::shared_ptr<spdlog::logger> logger_ptr)
 {
 	std::shared_ptr<UserDb> ptr;

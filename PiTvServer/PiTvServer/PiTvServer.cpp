@@ -323,8 +323,13 @@ bool PiTvServer::start_server()
 		config.logger_ptr->warn("start_server() called for already running server!");
 		return true;
 	}
-
 	is_server_running = true;
+
+	if (!user_db->connection_ok())
+	{
+		config.logger_ptr->error("User DB: connection failed!");
+		return false;
+	}
 
 	for (auto http_addr : config.http_listeners)
 	{

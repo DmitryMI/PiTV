@@ -56,6 +56,11 @@ UserDbCsv::UserDbCsv(std::string csv_file_path, std::shared_ptr<spdlog::logger> 
 {
 	this->csv_file_path = csv_file_path;
 	this->logger_ptr = logger_ptr;
+
+	if (!std::filesystem::exists(csv_file_path))
+	{
+		logger_ptr->error("UserDB-CSV connected to non-existing file {}", csv_file_path);
+	}
 }
 
 std::shared_ptr<UserData> UserDbCsv::get_userdata(std::string username) const
@@ -151,4 +156,9 @@ void UserDbCsv::set_csv_separator(std::string separator)
 std::string UserDbCsv::get_csv_separator() const
 {
 	return csv_separator;
+}
+
+bool UserDbCsv::connection_ok() const
+{
+	return std::filesystem::exists(csv_file_path);
 }
