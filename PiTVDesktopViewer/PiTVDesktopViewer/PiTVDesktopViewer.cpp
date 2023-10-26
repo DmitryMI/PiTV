@@ -316,24 +316,17 @@ void PiTVDesktopViewer::cameraLeaseHttpRequestFinished(QNetworkReply* reply)
 	CameraLeaseRequest& requestData = cameraLeaseReplyMap[reply];
 	cameraLeaseReplyMap.remove(reply);
 
-	bool leaseFailed = true;
 	if (reply->error() == QNetworkReply::NoError)
 	{
-		leaseFailed = false;
-
 		QJsonDocument d = QJsonDocument::fromJson(reply->readAll());
 		QJsonObject root = d.object();
 		activeLeaseRequest.leaseGuid = root["guid"].toString();
 	}
 	else
 	{
-		QMessageBox::critical(this, "Failed to lease camera", reply->errorString());
-	}
-
-	if (leaseFailed)
-	{
 		leaseUpdateTimer->stop();
 		activeLeaseRequest = CameraLeaseRequest();
+		QMessageBox::critical(this, "Failed to lease camera", reply->errorString());
 	}
 
 	reply->deleteLater();
