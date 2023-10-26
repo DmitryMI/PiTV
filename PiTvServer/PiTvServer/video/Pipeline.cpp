@@ -608,7 +608,7 @@ GstElement* Pipeline::make_capturing_subpipe()
 	assert(bin);
 
 	GstElement* source = nullptr;
-	if (config.videosource_overrider.empty())
+	if (config.videosource_override.empty())
 	{
 		source = gst_element_factory_make("libcamerasrc", "libcamerasrc");
 		if (!source)
@@ -624,8 +624,10 @@ GstElement* Pipeline::make_capturing_subpipe()
 		if (!source)
 		{
 			logger()->error("Failed to create bin from user-specified videosource string: {}", config.videosource_override);
-			return false;
+			gst_object_unref(bin);
+			return nullptr;
 		}
+		gst_bin_add(GST_BIN(bin), source);
 	}
 
 	GstElement* encoder = gst_element_factory_make("v4l2h264enc", "v4l2h264enc");
@@ -717,6 +719,7 @@ GstElement* Pipeline::make_capturing_subpipe()
 			logger()->error("Failed to create bin from user-specified videosource string: {}", config.videosource_override);
 			return false;
 		}
+		gst_bin_add(GST_BIN(bin), source);
 	}
 
 	GstElement* encoder = gst_element_factory_make("x264enc", "x264enc");

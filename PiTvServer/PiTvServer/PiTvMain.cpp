@@ -35,7 +35,7 @@ void signal_handler(int signum)
 	switch (signum)
 	{
 	case SIGTERM:
-		terminate.store(true);
+		should_terminate.store(true);
 		exit_code.store(signum);
 		break;
 	case SIGHUP:
