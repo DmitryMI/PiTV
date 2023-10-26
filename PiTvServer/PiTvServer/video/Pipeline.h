@@ -17,6 +17,7 @@ struct PipelineConfig
 	int video_fps_denominator = 1;
 	int recording_segment_duration = 3600;
 	int recording_max_size = 32 * 1024;
+	std::string videosource_override;
 };
 
 class Pipeline
@@ -111,6 +112,7 @@ public:
 	bool construct_pipeline();
 	bool start_pipeline();
 	bool pause_pipeline();
+	bool stop_pipeline();
 	bool is_pipeline_running() const;
 	void bus_poll(int timeout_msec);
 	void bus_poll();
@@ -143,4 +145,6 @@ public:
 	static void print_pipeline_elements_state(GstElement* element, int indent_level, std::stringstream* msg_builder);
 
 	void log_pipeline_elements_state() const;
+
+	void set_config(const PipelineConfig& config);
 };

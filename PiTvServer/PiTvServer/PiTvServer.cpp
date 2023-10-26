@@ -276,17 +276,10 @@ std::string PiTvServer::addr_to_str(const mg_addr& addr)
 	return addr_builder.str();
 }
 
-PiTvServer::PiTvServer(const PiTvServerConfig& config, std::shared_ptr<Pipeline> pipeline)
+void PiTvServer::set_config(const PiTvServerConfig& config)
 {
-	this->config = config;
-
-	mg_log_set(MG_LL_DEBUG);
-	mg_mgr_init(&mongoose_event_manager);
-
-	mg_log_set_fn(&PiTvServer::mongoose_log_handler, this);
-
-	// log_level = config.logger_ptr->level();
-	log_level = spdlog::level::level_enum::debug;
+	log_level = config.logger_ptr->level();
+	//log_level = spdlog::level::level_enum::debug;
 	if (log_level == spdlog::level::off)
 	{
 		mg_log_set(0);
@@ -315,16 +308,11 @@ PiTvServer::PiTvServer(const PiTvServerConfig& config, std::shared_ptr<Pipeline>
 		log_level = spdlog::level::level_enum::info;
 	}
 
-	pipeline_main_ptr = pipeline;
-
 	user_db = UserDb::userdb_factory(config.user_db, config.logger_ptr);
 	if (!user_db)
 	{
 		config.logger_ptr->error("Failed to get user_db!");
 	}
-
-	system_stats_ok = system_stats_init();
-	system_stats_cpu_temp_ok = system_stats_has_temp_cpu();
 
 	if (!config.tls_ca_path.empty())
 	{
@@ -369,6 +357,23 @@ PiTvServer::PiTvServer(const PiTvServerConfig& config, std::shared_ptr<Pipeline>
 	{
 		config.logger_ptr->warn("Server TLS configuration is incomplete, HTTPS communication will not be possible!");
 	}
+}
+
+PiTvServer::PiTvServer(const PiTvServerConfig& config, std::shared_ptr<Pipeline> pipeline)
+{
+	this->config = config;
+
+	mg_log_set(MG_LL_DEBUG);
+	mg_mgr_init(&mongoose_event_manager);
+
+	mg_log_set_fn(&PiTvServer::mongoose_log_handler, this);
+
+	pipeline_main_ptr = pipeline;
+
+	system_stats_ok = system_stats_init();
+	system_stats_cpu_temp_ok = system_stats_has_temp_cpu();
+
+	set_config(config);
 }
 
 PiTvServer::~PiTvServer()

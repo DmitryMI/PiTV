@@ -108,6 +108,7 @@ public:
     ~PiTvServer();
     bool start_server();
     bool server_poll(int timeout_msec);
+    void set_config(const PiTvServerConfig& config);
 
     std::pair<int, std::string> lease_camera(std::string& guid, std::string username, std::string host, int port, uint64_t lease_time_msec);
     std::pair<int, std::string> end_camera_lease(std::string username, std::string guid);

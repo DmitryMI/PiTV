@@ -303,7 +303,31 @@ std::string Pipeline::get_recording_full_path() const
 	return recording_full_path;
 }
 
+bool Pipeline::stop_pipeline()
+{
+	if (!gst_pipeline)
+	{
+		logger()->error("stop_pipeline() called for not contrucred pipeline!");
+		return false;
+	}
 
+	if (!is_pipeline_running())
+	{
+		logger()->warn("stop_pipeline() called for not running pipeline!");
+		return true;
+	}
+
+	GstStateChangeReturn set_state_code = gst_element_set_state(gst_pipeline, GST_STATE_NULL);
+
+	if (set_state_code == GST_STATE_CHANGE_FAILURE)
+	{
+		logger()->error("Failed to set the pipeline to the playing state!\n");
+		return false;
+	}
+
+	logger()->info("Pipeline successfully set to PAUSED state with result code: %d", set_state_code);
+	return true;
+}
 
 GstElement* Pipeline::make_streaming_subpipe()
 {
@@ -526,6 +550,14 @@ bool Pipeline::splitmux_split_after()
 	return true;
 }
 
+void Pipeline::set_config(const PipelineConfig& config)
+{
+	//PipelineConfig config_old = this->config;
+	this->config = config;
+
+	// Video caps not updated on a constructed pipeline!
+}
+
 Pipeline::Pipeline(const PipelineConfig& config)
 {
 	this->config = config;
@@ -575,13 +607,26 @@ GstElement* Pipeline::make_capturing_subpipe()
 	GstElement* bin = gst_bin_new("video-source-bin");
 	assert(bin);
 
-	GstElement* source = gst_element_factory_make("libcamerasrc", "libcamerasrc");
-	if (!source)
+	GstElement* source = nullptr;
+	if (config.videosource_overrider.empty())
 	{
-		gst_object_unref(bin);
-		return nullptr;
+		source = gst_element_factory_make("libcamerasrc", "libcamerasrc");
+		if (!source)
+		{
+			gst_object_unref(bin);
+			return nullptr;
+		}
+		gst_bin_add(GST_BIN(bin), source);
 	}
-	gst_bin_add(GST_BIN(bin), source);
+	else
+	{
+		source = gst_parse_bin_from_description(config.videosource_override.c_str(), true, NULL);
+		if (!source)
+		{
+			logger()->error("Failed to create bin from user-specified videosource string: {}", config.videosource_override);
+			return false;
+		}
+	}
 
 	GstElement* encoder = gst_element_factory_make("v4l2h264enc", "v4l2h264enc");
 	if (!encoder)
@@ -650,28 +695,30 @@ GstElement* Pipeline::make_capturing_subpipe()
 	GstElement* bin = gst_bin_new("video-source-bin");
 	assert(bin);
 
+	GstElement* source = nullptr;
 	// GstElement* source = gst_element_factory_make("mfvideosrc", "mfvideosrc");
-	GstElement* source = gst_element_factory_make("videotestsrc", "videotestsrc");
-	if (!source)
+	if (config.videosource_override.empty())
 	{
-		logger()->error("Failed to create source element!");
-		gst_object_unref(bin);
-		return nullptr;
+		source = gst_element_factory_make("videotestsrc", "videotestsrc");
+		if (!source)
+		{
+			logger()->error("Failed to create source element!");
+			gst_object_unref(bin);
+			return nullptr;
+		}
+		gst_bin_add(GST_BIN(bin), source);
+		g_object_set(source, "is-live", true, NULL);
 	}
-	gst_bin_add(GST_BIN(bin), source);
-	g_object_set(source, "is-live", true, NULL);
+	else
+	{
+		source = gst_parse_bin_from_description(config.videosource_override.c_str(), true, NULL);
+		if (!source)
+		{
+			logger()->error("Failed to create bin from user-specified videosource string: {}", config.videosource_override);
+			return false;
+		}
+	}
 
-	/*
-	GstElement* encoder = gst_element_factory_make("mfh264enc", "mfh264enc");
-	if (!encoder)
-	{
-		logger()->error("Failed to create mfh264enc element!");
-		gst_object_unref(bin);
-		return nullptr;
-	}
-	g_object_set(encoder, "low-latency", TRUE, NULL);
-	*/
-	// xh264
 	GstElement* encoder = gst_element_factory_make("x264enc", "x264enc");
 	if (!encoder)
 	{
@@ -682,7 +729,6 @@ GstElement* Pipeline::make_capturing_subpipe()
 	g_object_set(encoder, "tune", 4, NULL);
 	gst_bin_add(GST_BIN(bin), encoder);
 	
-
 	GstCaps* source_caps = gst_caps_new_simple("video/x-raw",
 		"width", G_TYPE_INT, config.video_width,
 		"height", G_TYPE_INT, config.video_height,

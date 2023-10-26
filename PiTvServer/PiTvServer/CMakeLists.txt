@@ -87,3 +87,12 @@ elseif(UNIX)
 else()
 	add_compile_definitions(CM_OS_UNKNOWN)
 endif()
+
+#set(SERVICE_EXECUTABLE_NAME $<TARGET_FILE:PiTvServer>)
+set(SERVICE_EXECUTABLE_CMD ${PROJECT_NAME})
+message(STATUS "Copying .service file to output directory. SERVICE_EXECUTABLE_CMD is ${SERVICE_EXECUTABLE_CMD}")
+
+configure_file (
+    "${PROJECT_SOURCE_DIR}/pitv-server.service.in"
+    "${PROJECT_BINARY_DIR}/pitv-server.service"
+)

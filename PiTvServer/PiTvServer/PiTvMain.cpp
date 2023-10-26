@@ -10,11 +10,41 @@
 #include <chrono>
 #include <thread>
 #include <exception>
+#include <mutex>
+#include <atomic>
 
 #include "video/Pipeline.h"
 #include "PiTvServer.h"
 
+#ifdef CM_UNIX
+#include <csignal>
+#endif
+
 namespace po = boost::program_options;
+
+static std::shared_ptr<Pipeline> pipeline;
+static std::shared_ptr<PiTvServer> server;
+static std::atomic<bool> should_terminate = false;
+static std::atomic<bool> should_reload = false;
+static std::atomic<int> exit_code = 0;
+
+#ifdef CM_UNIX
+void signal_handler(int signum)
+{
+	spdlog::info("Interrupt signal {} received", signum);
+	switch (signum)
+	{
+	case SIGTERM:
+		terminate.store(true);
+		exit_code.store(signum);
+		break;
+	case SIGHUP:
+		should_reload.store(true);
+		break;
+	}
+	
+}
+#endif
 
 bool get_log_fullname(std::string dir_name, std::string filename, bool force_mkdirs, std::string& out_filename)
 {
@@ -135,13 +165,13 @@ void populate_listen_addresses(PiTvServerConfig& server_config, const po::variab
 	}
 }
 
-int main(int argc, char** argv)
+bool read_configuration(int argc, char** argv, PiTvServerConfig& server_config, PipelineConfig& pipeline_config)
 {
 	po::options_description desc("Allowed options");
 
 	desc.add_options()
 		("help", "produce help message")
-		("config", po::value<std::string>(), "path to config file")
+		("config", po::value<std::string>()->default_value("pitv-config.txt"), "path to config file")
 		("user-db", po::value<std::string>()->default_value("usernames.txt"), "Path to CSV file in format username,password,role")
 		("tls-ca", po::value<std::string>()->default_value("ca.crt"), "Path to CA for TLS support")
 		("tls-pub", po::value<std::string>()->default_value("server.crt"), "Path to server public key for TLS support")
@@ -150,7 +180,7 @@ int main(int argc, char** argv)
 		("log-level", po::value<std::string>()->default_value("INFO"), "logging level")
 		("force-mkdirs", po::value<bool>()->default_value(true), "create missing directories")
 		("listen", po::value<std::vector<std::string>>()->multitoken(), "add listening IP address for HTTP server")
-		("camera-dev", po::value<std::string>()->default_value(""), "device to be used as video source")
+		("videosource", po::value<std::string>()->default_value(""), "overrides gstreamer video source pipeline factory")
 		("video-width", po::value<int>()->default_value(640), "video width")
 		("video-height", po::value<int>()->default_value(640), "video height")
 		("video-fps-numerator", po::value<int>()->default_value(20), "video framerate numerator")
@@ -164,7 +194,7 @@ int main(int argc, char** argv)
 
 	try
 	{
-		
+
 		po::store(po::parse_command_line(argc, argv, desc), vm);
 		po::notify(vm);
 
@@ -173,13 +203,15 @@ int main(int argc, char** argv)
 			std::string config_path = vm["config"].as<std::string>();
 			if (!std::filesystem::exists(config_path))
 			{
-				std::cout << "File " << config_path << " does not exist!" << std::endl;
-				return 1;
+				std::cerr << "Config file " << config_path << " not found." << std::endl;
 			}
-			po::store(po::parse_config_file(config_path.c_str(), desc), vm);
-			std::filesystem::path path(config_path);
+			else
+			{
+				po::store(po::parse_config_file(config_path.c_str(), desc), vm);
+				std::filesystem::path path(config_path);
 
-			std::filesystem::current_path(path.parent_path());
+				std::filesystem::current_path(path.parent_path());
+			}
 		}
 
 		po::notify(vm);
@@ -187,13 +219,13 @@ int main(int argc, char** argv)
 	catch (std::exception& ex)
 	{
 		std::cerr << ex.what() << std::endl;
-		return 1;
+		return false;
 	}
 
 	if (vm.count("help"))
 	{
 		std::cout << desc << "\n";
-		return 1;
+		return false;
 	}
 
 	std::shared_ptr<spdlog::logger> pipeline_logger_ptr;
@@ -203,13 +235,12 @@ int main(int argc, char** argv)
 	std::string log_level = vm["log-level"].as<std::string>();
 	if (!setup_logging(vm["log-dir"].as<std::string>(), log_level, force_mkdirs, pipeline_logger_ptr, http_logger_ptr))
 	{
-		return 1;
+		return false;
 	}
 	spdlog::info("Logging set up.");
 
 	gst_init(&argc, &argv);
 
-	PipelineConfig pipeline_config;
 	pipeline_config.logger_ptr = pipeline_logger_ptr;
 	pipeline_config.force_mkdirs = force_mkdirs;
 	pipeline_config.recording_path = vm["recording-path"].as<std::string>();
@@ -221,7 +252,6 @@ int main(int argc, char** argv)
 	pipeline_config.recording_segment_duration = vm["recording-segment-duration"].as<int>();
 	pipeline_config.recording_max_size = vm["recording-max-size"].as<int>();
 
-	PiTvServerConfig server_config;
 	populate_listen_addresses(server_config, vm);
 	server_config.logger_ptr = http_logger_ptr;
 	server_config.recording_path = vm["recording-path"].as<std::string>();
@@ -230,7 +260,21 @@ int main(int argc, char** argv)
 	server_config.tls_pub_path = vm["tls-pub"].as<std::string>();
 	server_config.tls_key_path = vm["tls-key"].as<std::string>();
 
-	std::shared_ptr<Pipeline> pipeline = std::make_shared<Pipeline>(pipeline_config);
+	return true;
+}
+
+int main(int argc, char** argv)
+{
+#ifdef CM_UNIX
+	signal(SIGINT, signal_handler);
+#endif
+
+	PipelineConfig pipeline_config;
+	PiTvServerConfig server_config;
+
+	read_configuration(argc, argv, server_config, pipeline_config);
+
+	pipeline = std::make_shared<Pipeline>(pipeline_config);
 
 	if (!pipeline->construct_pipeline())
 	{
@@ -244,17 +288,37 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	std::shared_ptr<PiTvServer> server = std::make_shared<PiTvServer>(server_config, pipeline);
+	server = std::make_shared<PiTvServer>(server_config, pipeline);
 
 	if (!server->start_server())
 	{
 		spdlog::error("Failed to start http server!");
 		return 1;
 	}
-
-	while (true)
+	
+	while (!should_terminate.load())
 	{
+		if (should_reload.load())
+		{
+			read_configuration(argc, argv, server_config, pipeline_config);
+			pipeline->set_config(pipeline_config);
+			server->set_config(server_config);
+			spdlog::warn("Config refresh signal received!");
+			should_reload.store(false);
+		}
+
 		pipeline->bus_poll();
 		server->server_poll(250);
 	}
+
+	server.reset();
+
+	if (pipeline->is_pipeline_running())
+	{
+		pipeline->splitmux_split_after();
+	}
+	pipeline->stop_pipeline();
+	pipeline.reset();
+
+	return exit_code.load();
 }
