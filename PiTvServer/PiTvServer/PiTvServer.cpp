@@ -1,5 +1,6 @@
 #include <fstream>
 #include "PiTvServer.h"
+#include "base64.hpp"
 #include "SystemStats.h"
 
 const int PiTvServer::guid_length = 64;
@@ -193,7 +194,31 @@ void PiTvServer::on_pitv_request(mg_connection* c, mg_http_message* hm)
 
 		if (result.first == 200)
 		{
-			mg_http_reply(c, 200, "", "{\"guid\": \"%s\"}\n", lease_guid_new.c_str());
+			std::string srtp_key;
+			int srtp_cipher = -1;
+			int srtp_auth = -1;
+			if (!get_srtp_key_base64(srtp_key))
+			{
+				config.logger_ptr->error("Failed to get SRTP key");
+				mg_http_reply(c, 500, "", "SRTP error");
+				return;
+			}
+
+			if (!pipeline_main_ptr->get_srtp_security_params(srtp_cipher, srtp_auth))
+			{
+				config.logger_ptr->error("Failed to get SRTP security parameters");
+				mg_http_reply(c, 500, "", "SRTP error");
+				return;
+			}
+
+			mg_http_reply(c, 200, "",
+				"{\"guid\": \"%s\", \"srtp-key\": %s, \"srtp-cipher\": %d, \"srtp-auth\": %d}\n",
+				lease_guid_new.c_str(),
+				srtp_key.c_str(),
+				srtp_cipher,
+				srtp_auth
+			);
+
 		}
 		else
 		{
@@ -229,10 +254,10 @@ void PiTvServer::server_https_handler(mg_connection* c, int ev, void* ev_data, v
 	{
 		size_t size = 0;
 
-		struct mg_tls_opts opts = 
+		struct mg_tls_opts opts =
 		{
 			.cert = mg_str(server->tls_cert_value.c_str()),
-			.key = mg_str(server->tls_key_value.c_str()) 
+			.key = mg_str(server->tls_key_value.c_str())
 		};
 
 		if (!server->tls_ca_value.empty())
@@ -598,5 +623,30 @@ bool PiTvServer::read_file(const std::string& path, std::string& out) const
 	out = buffer.str();
 	t.close();
 	config.logger_ptr->debug("Successfully read file {}", path);
+	return true;
+}
+
+bool PiTvServer::get_srtp_key_base64(std::string& out_key) const
+{
+	if (!pipeline_main_ptr)
+	{
+		config.logger_ptr->error("Failed to get SRTP key from pipeline, because pipeline is nulltr");
+		return false;
+	}
+
+	std::vector<uint8_t> key_bytes;
+	if (!pipeline_main_ptr->get_srtp_master_key(key_bytes))
+	{
+		return false;
+	}
+
+	std::string enc = base64::encode_into<std::string>(std::begin(key_bytes), std::end(key_bytes));
+
+	out_key.clear();
+	for (int i = 0; i < enc.size(); i++)
+	{
+		out_key.push_back(enc[i]);
+	}
+
 	return true;
 }

@@ -173,9 +173,9 @@ bool read_configuration(int argc, char** argv, PiTvServerConfig& server_config, 
 		("help", "produce help message")
 		("config", po::value<std::string>()->default_value("pitv-config.txt"), "path to config file")
 		("user-db", po::value<std::string>()->default_value("usernames.txt"), "Path to CSV file in format username,password,role")
-		("tls-ca", po::value<std::string>()->default_value("ca.crt"), "Path to CA for TLS support")
-		("tls-pub", po::value<std::string>()->default_value("server.crt"), "Path to server public key for TLS support")
-		("tls-key", po::value<std::string>()->default_value("server.key"), "Path to server private key for TLS support")
+		("tls-ca", po::value<std::string>(), "Path to CA for TLS support")
+		("tls-pub", po::value<std::string>(), "Path to server public key for TLS support")
+		("tls-key", po::value<std::string>(), "Path to server private key for TLS support")
 		("log-dir", po::value<std::string>()->default_value("logs"), "logging directory")
 		("log-level", po::value<std::string>()->default_value("INFO"), "logging level")
 		("force-mkdirs", po::value<bool>()->default_value(true), "create missing directories")
@@ -204,6 +204,7 @@ bool read_configuration(int argc, char** argv, PiTvServerConfig& server_config, 
 			if (!std::filesystem::exists(config_path))
 			{
 				std::cerr << "Config file " << config_path << " not found." << std::endl;
+				return false;
 			}
 			else
 			{
@@ -244,7 +245,7 @@ bool read_configuration(int argc, char** argv, PiTvServerConfig& server_config, 
 	pipeline_config.logger_ptr = pipeline_logger_ptr;
 	pipeline_config.force_mkdirs = force_mkdirs;
 	pipeline_config.recording_path = vm["recording-path"].as<std::string>();
-	pipeline_config.camera_dev = vm["camera-dev"].as<std::string>();
+	pipeline_config.videosource_override = vm["videosource"].as<std::string>();
 	pipeline_config.video_width = vm["video-width"].as<int>();
 	pipeline_config.video_height = vm["video-height"].as<int>();
 	pipeline_config.video_fps_numerator = vm["video-fps-numerator"].as<int>();
@@ -256,9 +257,21 @@ bool read_configuration(int argc, char** argv, PiTvServerConfig& server_config, 
 	server_config.logger_ptr = http_logger_ptr;
 	server_config.recording_path = vm["recording-path"].as<std::string>();
 	server_config.user_db = vm["user-db"].as<std::string>();
-	server_config.tls_ca_path = vm["tls-ca"].as<std::string>();
-	server_config.tls_pub_path = vm["tls-pub"].as<std::string>();
-	server_config.tls_key_path = vm["tls-key"].as<std::string>();
+
+	if (vm.count("tls-ca"))
+	{
+		server_config.tls_ca_path = vm["tls-ca"].as<std::string>();
+	}
+
+	if (vm.count("tls-pub"))
+	{
+		server_config.tls_pub_path = vm["tls-pub"].as<std::string>();
+	}
+
+	if (vm.count("tls-key"))
+	{
+		server_config.tls_key_path = vm["tls-key"].as<std::string>();
+	}
 
 	return true;
 }

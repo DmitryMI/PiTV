@@ -10,7 +10,6 @@ struct PipelineConfig
 	std::shared_ptr<spdlog::logger> logger_ptr;
 	std::string recording_path = "Recordings";
 	bool force_mkdirs = true;
-	std::string camera_dev;
 	int video_width = 640;
 	int video_height = 640;
 	int video_fps_numerator = 20;
@@ -24,7 +23,7 @@ class Pipeline
 {
 public:
 	static const std::string recording_extension;
-
+	static const int srtp_key_length;
 private:
 	PipelineConfig config;
 	GstElement* gst_pipeline = nullptr;
@@ -32,19 +31,26 @@ private:
 	bool is_playing = false;
 	std::string recording_full_path;
 
+	std::mutex srtp_master_key_mutex;
+	std::vector<uint8_t> srtp_master_key;
+
+	static const std::string get_current_date_time_str();
+	static gchararray format_location_handler(GstElement* splitmux, guint fragment_id, gpointer udata);
+	static void on_srtp_soft_limit(GstElement* gstsrtpenc,	gpointer udata);
+
 	std::shared_ptr<spdlog::logger> logger() const;
 
 	GstElement* make_capturing_subpipe();
 	GstElement* make_recording_subpipe();
 	GstElement* make_streaming_subpipe();
 
-	static const std::string get_current_date_time_str();
-	void handle_pipeline_message(GstMessage* msg);
-	static gchararray format_location_handler(GstElement* splitmux, guint fragment_id, gpointer udata);
-
 	uintmax_t get_recording_total_size() const;
 	std::filesystem::path get_oldest_file() const;
 	void enforce_recording_max_size_restrictions(std::filesystem::path last_fragment_path, int last_fragment_index);
+	void handle_pipeline_message(GstMessage* msg);
+
+	bool generate_srtp_master_key();
+	bool srtpenc_set_key(GstElement* gstsrtpenc);
 
 	template<typename Callable>
 	void traverse_bin_elements(GstBin* bin, int level, const Callable& callable) const
@@ -147,4 +153,8 @@ public:
 	void log_pipeline_elements_state() const;
 
 	void set_config(const PipelineConfig& config);
+
+	bool get_srtp_master_key(std::vector<uint8_t>& key_vec);
+
+	bool get_srtp_security_params(int& cipher_index, int& auth_index);
 };

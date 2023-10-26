@@ -96,6 +96,8 @@ private:
 
     bool read_file(const std::string& file_name, std::string& out) const;
 
+    bool get_srtp_key_base64(std::string& out_key) const;
+
 public:
     const static int guid_length;
     static const uint64_t max_lease_time_msec;

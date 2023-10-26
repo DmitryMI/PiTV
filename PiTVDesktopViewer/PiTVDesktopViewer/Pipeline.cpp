@@ -116,6 +116,10 @@ bool Pipeline::constructPipeline()
 		NULL);
 
 	g_object_set(capsfilter, "caps", caps, NULL);
+
+	GstElement* srtpdec = gst_element_factory_make("srtpdec", "srtpdec");
+	Q_ASSERT(srtpdec);
+
 	GstElement* rtph264depay = gst_element_factory_make("rtph264depay", "rtph264depay");
 	Q_ASSERT(rtph264depay);
 
@@ -125,9 +129,9 @@ bool Pipeline::constructPipeline()
 	GstElement* glimagesink = gst_element_factory_make("glimagesink", "glimagesink");
 	Q_ASSERT(glimagesink);
 
-	gst_bin_add_many(GST_BIN(gst_pipeline), udpsrc, capsfilter, rtph264depay, avdec_h264, glimagesink, NULL);
+	gst_bin_add_many(GST_BIN(gst_pipeline), udpsrc, srtpdec, capsfilter, rtph264depay, avdec_h264, glimagesink, NULL);
 
-	if (!gst_element_link_many(udpsrc, capsfilter, rtph264depay, avdec_h264, glimagesink, NULL))
+	if (!gst_element_link_many(udpsrc, srtpdec, capsfilter, rtph264depay, avdec_h264, glimagesink, NULL))
 	{
 		return false;
 	}

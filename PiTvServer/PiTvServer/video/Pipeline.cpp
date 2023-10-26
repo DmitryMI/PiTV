@@ -1,8 +1,11 @@
 #include <gst/gst.h>
 #include <filesystem>
+#include <openssl/rand.h>
+#include <openssl/err.h>
 #include "Pipeline.h"
 
 const std::string Pipeline::recording_extension = "mp4";
+const int Pipeline::srtp_key_length = 46;
 
 void Pipeline::handle_pipeline_message(GstMessage* msg)
 {
@@ -85,6 +88,70 @@ void Pipeline::handle_pipeline_message(GstMessage* msg)
 	}
 }
 
+bool Pipeline::generate_srtp_master_key()
+{
+	if (RAND_status() != 1)
+	{
+		logger()->warn("OpenSSL RAND_status reported that generator is not seeded!");
+		int poll_ret = RAND_poll();
+		auto poll_err_code = ERR_get_error();
+		if (poll_ret != 1)
+		{
+			logger()->error("OpenSSL RAND_poll failed with error code {}", poll_err_code);
+			return false;
+		}
+	}
+
+	std::scoped_lock<std::mutex> lock(srtp_master_key_mutex);
+
+	srtp_master_key.clear();
+
+	uint8_t buffer[srtp_key_length];
+	int ret = RAND_bytes(buffer, srtp_key_length);
+	auto error_code = ERR_get_error();
+	if (ret == 1)
+	{
+		for (int i = 0; i < srtp_key_length; i++)
+		{
+			srtp_master_key.push_back(buffer[i]);
+		}
+
+		logger()->info("SRTP Master Key generated");
+		return true;
+	}
+	
+	logger()->error("OpenSSL RAND_bytes failed with error code {}", error_code);
+
+	return false;
+}
+
+bool Pipeline::srtpenc_set_key(GstElement* gstsrtpenc)
+{
+	assert(gstsrtpenc);
+
+	std::scoped_lock<std::mutex> lock(srtp_master_key_mutex);
+
+	if (srtp_master_key.size() != srtp_key_length)
+	{
+		logger()->error("Cannot set SRTP Master Key: key is invalid");
+		return false;
+	}
+
+	uint8_t buffer[srtp_key_length];
+	for (int i = 0; i < srtp_key_length; i++)
+	{
+		buffer[i] = srtp_master_key[i];
+	}
+
+	GstBuffer* gstbuffer = gst_buffer_new_memdup(buffer, srtp_key_length);
+	g_object_set(gstsrtpenc, "key", gstbuffer, NULL);
+	gst_buffer_unref(gstbuffer);
+
+	logger()->info("SRTP Master Key set");
+
+	return true;
+}
+
 const std::string Pipeline::get_current_date_time_str()
 {
 	time_t     now = time(0);
@@ -97,6 +164,25 @@ const std::string Pipeline::get_current_date_time_str()
 #endif
 	strftime(buf, sizeof(buf), "%Y-%m-%d--%H-%M-%S", &tstruct);
 	return buf;
+}
+
+void Pipeline::on_srtp_soft_limit(GstElement* gstsrtpenc, gpointer udata)
+{
+	assert(udata);
+	Pipeline* pipeline = static_cast<Pipeline*>(udata);
+
+	pipeline->logger()->warn("SRTP soft-limit reached!");
+
+	if (!pipeline->generate_srtp_master_key())
+	{
+		pipeline->logger()->error("on_srtp_soft_limit() failed to generate new SRTP Master Key!");
+		return;
+	}
+
+	if (!pipeline->srtpenc_set_key(gstsrtpenc))
+	{
+		pipeline->logger()->error("on_srtp_soft_limit() failed to set SRTP Master Key!");
+	}
 }
 
 gchararray Pipeline::format_location_handler(GstElement* splitmux, guint fragment_id, gpointer udata)
@@ -343,19 +429,39 @@ GstElement* Pipeline::make_streaming_subpipe()
 	GstElement* rtph264pay = gst_element_factory_make("rtph264pay", rtph264pay_name.c_str());
 	assert(rtph264pay);
 
+	GstElement* srtpenc = gst_element_factory_make("srtpenc", "srtpenc");
+	assert(srtpenc);
 
 	GstElement* multiudpsink = gst_element_factory_make("multiudpsink", "multiudpsink");
 	assert(multiudpsink);
 
-	gst_bin_add_many(GST_BIN(bin), streaming_queue, rtph264pay, multiudpsink, NULL);
+	gst_bin_add_many(GST_BIN(bin), streaming_queue, rtph264pay, srtpenc, multiudpsink, NULL);
 
-	gboolean link_ok = gst_element_link_many(streaming_queue, rtph264pay, multiudpsink, NULL);
+	gboolean link_ok = gst_element_link_many(streaming_queue, rtph264pay, srtpenc, multiudpsink, NULL);
 	assert(link_ok);
 
 	GstPad* sink = gst_element_get_static_pad(streaming_queue, "sink");
 	GstPad* sink_ghost = gst_ghost_pad_new("sink", sink);
 	gst_element_add_pad(bin, sink_ghost);
 	gst_object_unref(sink);
+
+	// aes-256-icm - 2
+	// hmac-sha1-80 - 2
+	g_object_set(srtpenc, "rtp-cipher", 2, "rtp-auth", 2, NULL);
+
+	if (!generate_srtp_master_key())
+	{
+		gst_object_unref(bin);
+		return nullptr;
+	}
+
+	if (!srtpenc_set_key(srtpenc))
+	{
+		gst_object_unref(bin);
+		return nullptr;
+	}
+
+	
 
 	return bin;
 }
@@ -558,6 +664,30 @@ void Pipeline::set_config(const PipelineConfig& config)
 	// Video caps not updated on a constructed pipeline!
 }
 
+bool Pipeline::get_srtp_security_params(int& cipher, int& auth_index)
+{
+	if (!gst_pipeline)
+	{
+		logger()->error("Cannot get SRTP params, pipeline not constructed.");
+		return false;
+	}
+
+	GstElement* srtpenc = gst_bin_get_by_name(GST_BIN(gst_pipeline), "srtpenc");
+	assert(srtpenc);
+
+	g_object_get(srtpenc, "rtp-cipher", &cipher, "rtp-auth", &auth_index, NULL);
+
+	return true;
+}
+
+bool Pipeline::get_srtp_master_key(std::vector<uint8_t>& key_vec)
+{
+	std::scoped_lock<std::mutex> lock(srtp_master_key_mutex);
+
+	key_vec = srtp_master_key;
+	return srtp_master_key.size() == srtp_key_length;
+}
+
 Pipeline::Pipeline(const PipelineConfig& config)
 {
 	this->config = config;
@@ -715,7 +845,8 @@ GstElement* Pipeline::make_capturing_subpipe()
 		if (!source)
 		{
 			logger()->error("Failed to create bin from user-specified videosource string: {}", config.videosource_override);
-			return false;
+			gst_object_unref(bin);
+			return nullptr;
 		}
 	}
 
