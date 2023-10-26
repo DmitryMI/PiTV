@@ -96,3 +96,8 @@ configure_file (
     "${PROJECT_SOURCE_DIR}/pitv-server.service.in"
     "${PROJECT_BINARY_DIR}/pitv-server.service"
 )
+
+configure_file (
+    "${PROJECT_SOURCE_DIR}/example.conf.in"
+    "${PROJECT_BINARY_DIR}/example.conf"
+)

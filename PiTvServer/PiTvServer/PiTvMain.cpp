@@ -12,6 +12,8 @@
 #include <exception>
 #include <mutex>
 #include <atomic>
+#include <fstream>
+#include <string>
 
 #include "video/Pipeline.h"
 #include "PiTvServer.h"
@@ -42,7 +44,7 @@ void signal_handler(int signum)
 		should_reload.store(true);
 		break;
 	}
-	
+
 }
 #endif
 
@@ -165,13 +167,131 @@ void populate_listen_addresses(PiTvServerConfig& server_config, const po::variab
 	}
 }
 
-bool read_configuration(int argc, char** argv, PiTvServerConfig& server_config, PipelineConfig& pipeline_config)
+int uninstall_service()
+{
+	try
+	{
+		const std::string service_filename = "pitv-server.service";
+
+		const std::filesystem::path system_path = "/etc/systemd/system/";
+
+		std::string path_service_out = system_path / service_filename;
+
+		if (std::filesystem::exists(path_service_out))
+		{
+			if (!std::filesystem::remove(path_service_out))
+			{
+				std::cerr << "Access denied" << std::endl;
+				return 1;
+			}
+		}
+
+		std::cout << "Service uninstalled successfully" << std::endl;
+
+		return 0;
+	}
+	catch (std::exception& exc)
+	{
+		std::cerr << exc.what() << std::endl;
+		return 1;
+	}
+}
+
+int install_service(std::string_view path_executable_str, std::string_view config_path_str)
+{
+	try
+	{
+		std::filesystem::path path_executable(path_executable_str);
+		if (path_executable.is_relative())
+		{
+			path_executable = std::filesystem::absolute(path_executable);
+		}
+
+		std::filesystem::path path_config(config_path_str);
+		if (!config_path_str.empty() && path_config.is_relative())
+		{
+			path_config = std::filesystem::absolute(path_config);
+		}
+
+		const std::string service_filename = "pitv-server.service";
+
+		std::filesystem::path path_service_in = path_executable.parent_path() / service_filename;
+
+		if (!std::filesystem::exists(path_service_in))
+		{
+			std::cerr << "File " << path_service_in << " does not exist!" << std::endl;
+			return 1;
+		}
+
+		const std::filesystem::path system_path = "/etc/systemd/system/";
+
+		std::string path_service_out = system_path / service_filename;
+
+		if (std::filesystem::exists(path_service_out))
+		{
+			if (!std::filesystem::remove(path_service_out))
+			{
+				std::cerr << "Access denied" << std::endl;
+				return 1;
+			}
+		}
+
+		std::string exec_cmd = path_executable.string();
+		if (!path_config.empty() && std::filesystem::exists(path_config))
+		{
+			exec_cmd += " --config " + path_config.string();
+		}
+
+		std::ofstream service_file_out(path_service_out);
+		std::ifstream service_file_in(path_service_in);
+
+		std::string line;
+		while (std::getline(service_file_in, line))
+		{
+			if (line.find("ExecStart") != std::string::npos)
+			{
+				std::cout << "ExecStart adjusted with exec string: " << exec_cmd << std::endl;
+				service_file_out << "ExecStart=" << exec_cmd << std::endl;
+			}
+			else
+			{
+				service_file_out << line << std::endl;
+			}
+		}
+
+		service_file_in.close();
+		service_file_out.close();
+
+		if (!std::filesystem::exists(path_service_out))
+		{
+			std::cerr << "Access denied" << std::endl;
+			return 1;
+		}
+
+		std::cout << "Service installed successfully" << std::endl;
+		return 0;
+	}
+	catch (std::exception& exc)
+	{
+		std::cerr << exc.what() << std::endl;
+		return 1;
+	}
+}
+
+int install_service(std::string_view path_executable_str)
+{
+	return install_service(path_executable_str, "");
+}
+
+po::options_description create_options_description()
 {
 	po::options_description desc("Allowed options");
 
 	desc.add_options()
 		("help", "produce help message")
-		("config", po::value<std::string>()->default_value("pitv-config.txt"), "path to config file")
+		("service-install", "install PiTV .service file. Use --config to specify path to config file.")
+		("service-uninstall", "uninstall PiTV .service file")
+		("config", po::value<std::string>(), "path to config file")
 		("user-db", po::value<std::string>()->default_value("usernames.txt"), "Path to CSV file in format username,password,role")
 		("tls-ca", po::value<std::string>()->default_value("ca.crt"), "Path to CA for TLS support")
 		("tls-pub", po::value<std::string>()->default_value("server.crt"), "Path to server public key for TLS support")
@@ -190,14 +310,13 @@ bool read_configuration(int argc, char** argv, PiTvServerConfig& server_config, 
 		("recording-max-size", po::value<int>()->default_value(32 * 1024), "Maximum disk space for recordings in Megabytes")
 		;
 
-	po::variables_map vm;
+	return desc;
+}
 
+bool read_configuration(int argc, char** argv, const po::options_description& desc, PiTvServerConfig& server_config, PipelineConfig& pipeline_config, po::variables_map& vm)
+{
 	try
 	{
-
-		po::store(po::parse_command_line(argc, argv, desc), vm);
-		po::notify(vm);
-
 		if (vm.count("config"))
 		{
 			std::string config_path = vm["config"].as<std::string>();
@@ -222,12 +341,6 @@ bool read_configuration(int argc, char** argv, PiTvServerConfig& server_config, 
 		return false;
 	}
 
-	if (vm.count("help"))
-	{
-		std::cout << desc << "\n";
-		return false;
-	}
-
 	std::shared_ptr<spdlog::logger> pipeline_logger_ptr;
 	std::shared_ptr<spdlog::logger> http_logger_ptr;
 
@@ -244,7 +357,7 @@ bool read_configuration(int argc, char** argv, PiTvServerConfig& server_config, 
 	pipeline_config.logger_ptr = pipeline_logger_ptr;
 	pipeline_config.force_mkdirs = force_mkdirs;
 	pipeline_config.recording_path = vm["recording-path"].as<std::string>();
-	pipeline_config.camera_dev = vm["camera-dev"].as<std::string>();
+	pipeline_config.videosource_override = vm["videosource"].as<std::string>();
 	pipeline_config.video_width = vm["video-width"].as<int>();
 	pipeline_config.video_height = vm["video-height"].as<int>();
 	pipeline_config.video_fps_numerator = vm["video-fps-numerator"].as<int>();
@@ -272,7 +385,37 @@ int main(int argc, char** argv)
 	PipelineConfig pipeline_config;
 	PiTvServerConfig server_config;
 
-	read_configuration(argc, argv, server_config, pipeline_config);
+	po::options_description po_desc = create_options_description();
+	po::variables_map vm;
+
+	po::store(po::parse_command_line(argc, argv, po_desc), vm);
+	po::notify(vm);
+
+	if (vm.count("help"))
+	{
+		std::cout << po_desc << "\n";
+		return 0;
+	}
+
+	if (vm.count("service-install"))
+	{
+		std::cout << "Installing PiTV service..." << "\n";
+		if (vm.count("config"))
+		{
+			return install_service(std::string_view(argv[0]), vm["config"].as<std::string>());
+		}
+		return install_service(std::string_view(argv[0]));
+	}
+	else if (vm.count("service-uninstall"))
+	{
+		std::cout << "Uninstalling PiTV service..." << "\n";
+		return uninstall_service();
+	}
+
+	if (!read_configuration(argc, argv, po_desc, server_config, pipeline_config, vm))
+	{
+		return 1;
+	}
 
 	pipeline = std::make_shared<Pipeline>(pipeline_config);
 
@@ -295,12 +438,12 @@ int main(int argc, char** argv)
 		spdlog::error("Failed to start http server!");
 		return 1;
 	}
-	
+
 	while (!should_terminate.load())
 	{
 		if (should_reload.load())
 		{
-			read_configuration(argc, argv, server_config, pipeline_config);
+			read_configuration(argc, argv, po_desc, server_config, pipeline_config, vm);
 			pipeline->set_config(pipeline_config);
 			server->set_config(server_config);
 			spdlog::warn("Config refresh signal received!");

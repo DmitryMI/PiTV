@@ -10,7 +10,6 @@ struct PipelineConfig
 	std::shared_ptr<spdlog::logger> logger_ptr;
 	std::string recording_path = "Recordings";
 	bool force_mkdirs = true;
-	std::string camera_dev;
 	int video_width = 640;
 	int video_height = 640;
 	int video_fps_numerator = 20;
