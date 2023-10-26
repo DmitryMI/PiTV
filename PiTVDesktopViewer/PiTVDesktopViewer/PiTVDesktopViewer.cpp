@@ -316,24 +316,28 @@ void PiTVDesktopViewer::cameraLeaseHttpRequestFinished(QNetworkReply* reply)
 	CameraLeaseRequest& requestData = cameraLeaseReplyMap[reply];
 	cameraLeaseReplyMap.remove(reply);
 
-	bool leaseFailed = true;
 	if (reply->error() == QNetworkReply::NoError)
 	{
-		leaseFailed = false;
-
 		QJsonDocument d = QJsonDocument::fromJson(reply->readAll());
 		QJsonObject root = d.object();
 		activeLeaseRequest.leaseGuid = root["guid"].toString();
+
+		QString srtpKeyBase64 = root["srtp-key"].toString();
+		QByteArray key = QByteArray::fromBase64(srtpKeyBase64.toUtf8());
+		int cipher = root["srtp-cipher"].toInt();
+		int auth = root["srtp-auth"].toInt();
+		if (!pipeline->srtpSetKey(key) || !pipeline->srtpSetSecurityParams(cipher, auth))
+		{
+			leaseUpdateTimer->stop();
+			activeLeaseRequest = CameraLeaseRequest();
+			QMessageBox::critical(this, "SRTP Error", "Failed to set security parameters for SRTP!", QMessageBox::StandardButton::Ok);
+		}
 	}
 	else
 	{
-		QMessageBox::critical(this, "Failed to lease camera", reply->errorString());
-	}
-
-	if (leaseFailed)
-	{
 		leaseUpdateTimer->stop();
 		activeLeaseRequest = CameraLeaseRequest();
+		QMessageBox::critical(this, "Failed to lease camera", reply->errorString());
 	}
 
 	reply->deleteLater();

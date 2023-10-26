@@ -11,8 +11,14 @@ private:
 	int port;
 	WId windowHandle;
 
+	QByteArray srtpKey = QByteArray(46, 0);
+	int srtpCipher = 0;
+	int srtpAuth = 0;
+
 private:
 	void handle_pipeline_message(GstMessage* msg);
+
+	static GstCaps* onSrtpRequestKey(GstElement* gstsrtpdec,guint ssrc,	gpointer udata);
 
 public:
 	Pipeline(int port, WId windowHandle);
@@ -28,4 +34,7 @@ public:
 	bool stopPipeline();
 	bool isPipelinePlaying() const;
 	void busPoll();
+
+	bool srtpSetKey(QByteArray key);
+	bool srtpSetSecurityParams(int cipher, int auth);
 };

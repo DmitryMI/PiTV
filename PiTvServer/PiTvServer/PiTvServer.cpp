@@ -212,7 +212,7 @@ void PiTvServer::on_pitv_request(mg_connection* c, mg_http_message* hm)
 			}
 
 			mg_http_reply(c, 200, "",
-				"{\"guid\": \"%s\", \"srtp-key\": %s, \"srtp-cipher\": %d, \"srtp-auth\": %d}\n",
+				"{\"guid\": \"%s\", \"srtp-key\": \"%s\", \"srtp-cipher\": %d, \"srtp-auth\": %d}\n",
 				lease_guid_new.c_str(),
 				srtp_key.c_str(),
 				srtp_cipher,

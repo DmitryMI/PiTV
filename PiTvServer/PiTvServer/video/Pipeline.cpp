@@ -143,7 +143,7 @@ bool Pipeline::srtpenc_set_key(GstElement* gstsrtpenc)
 		buffer[i] = srtp_master_key[i];
 	}
 
-	GstBuffer* gstbuffer = gst_buffer_new_memdup(buffer, srtp_key_length);
+	GstBuffer* gstbuffer = gst_buffer_new_memdup("0000111100001111000011110000111100001111000011", srtp_key_length);
 	g_object_set(gstsrtpenc, "key", gstbuffer, NULL);
 	gst_buffer_unref(gstbuffer);
 
@@ -429,21 +429,30 @@ GstElement* Pipeline::make_streaming_subpipe()
 	GstElement* rtph264pay = gst_element_factory_make("rtph264pay", rtph264pay_name.c_str());
 	assert(rtph264pay);
 
+	GstCaps* srtpenc_caps = gst_caps_new_simple("application/x-rtp",
+		"ssrc", G_TYPE_UINT, 1356955624,
+		NULL);
+	GstElement* srtpenc_capsfilter = gst_element_factory_make("capsfilter", NULL);
+	assert(srtpenc_capsfilter);
+	g_object_set(srtpenc_capsfilter, "caps", srtpenc_caps, NULL);
+
 	GstElement* srtpenc = gst_element_factory_make("srtpenc", "srtpenc");
 	assert(srtpenc);
 
 	GstElement* multiudpsink = gst_element_factory_make("multiudpsink", "multiudpsink");
 	assert(multiudpsink);
 
-	gst_bin_add_many(GST_BIN(bin), streaming_queue, rtph264pay, srtpenc, multiudpsink, NULL);
+	gst_bin_add_many(GST_BIN(bin), streaming_queue, rtph264pay, srtpenc_capsfilter, srtpenc, multiudpsink, NULL);
 
-	gboolean link_ok = gst_element_link_many(streaming_queue, rtph264pay, srtpenc, multiudpsink, NULL);
+	gboolean link_ok = gst_element_link_many(streaming_queue, rtph264pay, srtpenc_capsfilter, srtpenc, multiudpsink, NULL);
 	assert(link_ok);
 
 	GstPad* sink = gst_element_get_static_pad(streaming_queue, "sink");
 	GstPad* sink_ghost = gst_ghost_pad_new("sink", sink);
 	gst_element_add_pad(bin, sink_ghost);
 	gst_object_unref(sink);
+
+	g_signal_connect(srtpenc, "soft-limit", G_CALLBACK(&Pipeline::on_srtp_soft_limit), this);
 
 	// aes-256-icm - 2
 	// hmac-sha1-80 - 2

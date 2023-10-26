@@ -52,6 +52,29 @@ void Pipeline::handle_pipeline_message(GstMessage* msg)
 	}
 }
 
+GstCaps* Pipeline::onSrtpRequestKey(GstElement* gstsrtpdec, guint ssrc, gpointer udata)
+{
+	Q_ASSERT(udata);
+	Pipeline* pipeline = static_cast<Pipeline*>(udata);
+
+	auto keyData = pipeline->srtpKey.constData();
+	int keySize = pipeline->srtpKey.size();
+	GstBuffer* keyBuffer = gst_buffer_new_memdup(keyData, keySize);
+
+	GstCaps* caps = gst_caps_new_simple("application/x-srtp",
+		// "srtp-key", GST_TYPE_BUFFER, keyBuffer,
+		"srtp-key", G_TYPE_STRING, "0000111100001111000011110000111100001111000011",
+		// "srtp-cipher", G_TYPE_INT, pipeline->srtpCipher,
+		// "srtp-auth", G_TYPE_INT, pipeline->srtpAuth,
+		"srtp-cipher", G_TYPE_STRING, "aes-256-icm",
+		"srtp-auth", G_TYPE_INT, "hmac-sha1-80",
+		NULL);
+
+	gst_buffer_unref(keyBuffer);
+	return caps;
+	// gst_caps_unref(caps);
+}
+
 Pipeline::Pipeline(int port, WId windowHandle)
 {
 	gst_debug_set_active(true);
@@ -109,16 +132,37 @@ bool Pipeline::constructPipeline()
 	GstElement* capsfilter = gst_element_factory_make("capsfilter", NULL);
 	Q_ASSERT(capsfilter);
 
+	/*
 	GstCaps* caps = gst_caps_new_simple(
 		"application/x-rtp",
 		"clock-rate", G_TYPE_INT, 90000,
 		"payload", G_TYPE_STRING, "video",
+		NULL);
+	*/
+
+	// application/x-rtp, clock-rate=(int)90000, payload=(string)video, media=(string)video, encoding-name=(string)H264
+
+	GstCaps* caps = gst_caps_new_simple(
+		"application/x-rtp",
+		"clock-rate", G_TYPE_INT, 90000,
+		"payload", G_TYPE_STRING, "video",
+		"media", G_TYPE_STRING, "video",
+		"encoding-name", G_TYPE_STRING, "H264",
 		NULL);
 
 	g_object_set(capsfilter, "caps", caps, NULL);
 
 	GstElement* srtpdec = gst_element_factory_make("srtpdec", "srtpdec");
 	Q_ASSERT(srtpdec);
+
+	GstCaps* srtpdec_caps = gst_caps_new_simple("application/x-srtp",
+		"ssrc", G_TYPE_UINT, 1356955624,
+		NULL);
+	GstElement* srtpdec_capsfilter = gst_element_factory_make("capsfilter", NULL);
+	Q_ASSERT(srtpdec_capsfilter);
+	g_object_set(srtpdec_capsfilter, "caps", srtpdec_caps, NULL);
+
+	g_signal_connect(srtpdec, "request-key", G_CALLBACK(&Pipeline::onSrtpRequestKey), this);
 
 	GstElement* rtph264depay = gst_element_factory_make("rtph264depay", "rtph264depay");
 	Q_ASSERT(rtph264depay);
@@ -129,9 +173,9 @@ bool Pipeline::constructPipeline()
 	GstElement* glimagesink = gst_element_factory_make("glimagesink", "glimagesink");
 	Q_ASSERT(glimagesink);
 
-	gst_bin_add_many(GST_BIN(gst_pipeline), udpsrc, srtpdec, capsfilter, rtph264depay, avdec_h264, glimagesink, NULL);
+	gst_bin_add_many(GST_BIN(gst_pipeline), udpsrc, srtpdec_capsfilter, srtpdec, capsfilter, rtph264depay, avdec_h264, glimagesink, NULL);
 
-	if (!gst_element_link_many(udpsrc, srtpdec, capsfilter, rtph264depay, avdec_h264, glimagesink, NULL))
+	if (!gst_element_link_many(udpsrc, srtpdec_capsfilter, srtpdec, capsfilter, rtph264depay, avdec_h264, glimagesink, NULL))
 	{
 		return false;
 	}
@@ -164,6 +208,12 @@ bool Pipeline::startPipeline()
 	}
 
 	qInfo() << "Pipeline successfully set to PLAYING state with result code:" << set_state_code;
+
+	std::string dot_name = std::string("viewer-started");
+	GstDebugGraphDetails graph_details = static_cast<GstDebugGraphDetails>(
+		GST_DEBUG_GRAPH_SHOW_MEDIA_TYPE | GST_DEBUG_GRAPH_SHOW_CAPS_DETAILS | GST_DEBUG_GRAPH_SHOW_NON_DEFAULT_PARAMS);
+	GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(gst_pipeline), graph_details, dot_name.c_str());
+
 	return true;
 }
 
@@ -218,4 +268,22 @@ void Pipeline::busPoll()
 	{
 		handle_pipeline_message(message);
 	}
+
+	std::string dot_name = std::string("viewer-poll");
+	GstDebugGraphDetails graph_details = static_cast<GstDebugGraphDetails>(
+		GST_DEBUG_GRAPH_SHOW_MEDIA_TYPE | GST_DEBUG_GRAPH_SHOW_CAPS_DETAILS | GST_DEBUG_GRAPH_SHOW_NON_DEFAULT_PARAMS);
+	GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS(GST_BIN(gst_pipeline), graph_details, dot_name.c_str());
+}
+
+bool Pipeline::srtpSetKey(QByteArray key)
+{
+	srtpKey = key;
+	return true;
+}
+
+bool Pipeline::srtpSetSecurityParams(int cipher, int auth)
+{
+	srtpCipher = cipher;
+	srtpAuth = auth;
+	return true;
 }
