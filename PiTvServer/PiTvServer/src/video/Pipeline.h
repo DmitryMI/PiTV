@@ -33,6 +33,7 @@ private:
 
 	std::shared_ptr<spdlog::logger> logger() const;
 
+	GstElement* make_capturing_subpipe(std::string bin_str);
 	GstElement* make_capturing_subpipe();
 	GstElement* make_recording_subpipe();
 	GstElement* make_streaming_subpipe();

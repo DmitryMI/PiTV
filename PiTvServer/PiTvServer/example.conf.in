@@ -24,7 +24,7 @@ listen = https://0.0.0.0:8080
 # listen = https://10.10.0.1:8090
 
 # TLS Certificate Authority. If set, clients' certificated will be validated against it
-tls-ca = ~/keys/ca.pem
+# tls-ca = ~/keys/ca.pem
 
 # Server's public and private keys. Both must be set to enable https.
 tls-pub = ~/keys/pitv-server.pem

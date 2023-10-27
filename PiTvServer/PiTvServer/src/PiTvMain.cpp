@@ -384,7 +384,7 @@ po::options_description create_options_description()
 		("log-level", po::value<std::string>()->default_value("INFO"), "logging level")
 		("force-mkdirs", po::value<bool>()->default_value(false), "create missing directories")
 		("listen", po::value<std::vector<std::string>>()->multitoken(), "add listening IP address for HTTP server")
-		("videosource", po::value<std::string>()->default_value(""), "overrides gstreamer video source pipeline factory")
+		("videosource", po::value<std::string>(), "overrides gstreamer video source pipeline factory")
 		("video-width", po::value<int>()->default_value(640), "video width")
 		("video-height", po::value<int>()->default_value(640), "video height")
 		("video-fps-numerator", po::value<int>()->default_value(20), "video framerate numerator")
@@ -445,7 +445,16 @@ bool read_configuration(int argc, char** argv, const po::options_description& de
 	pipeline_config.logger_ptr = pipeline_logger_ptr;
 	pipeline_config.force_mkdirs = force_mkdirs;
 	pipeline_config.recording_path = fix_path(vm["recording-path"].as<std::string>());
-	pipeline_config.videosource_override = vm["videosource"].as<std::string>();
+
+	if (vm.count("videosource"))
+	{
+		pipeline_config.videosource_override = vm["videosource"].as<std::string>();
+	}
+	else
+	{
+		pipeline_config.videosource_override = "";
+	}
+
 	pipeline_config.video_width = vm["video-width"].as<int>();
 	pipeline_config.video_height = vm["video-height"].as<int>();
 	pipeline_config.video_fps_numerator = vm["video-fps-numerator"].as<int>();

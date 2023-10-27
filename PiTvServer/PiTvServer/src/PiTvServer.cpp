@@ -51,7 +51,7 @@ void PiTvServer::server_http_handler(mg_connection* c, int ev, void* ev_data, vo
 		{
 			server->on_status_request(c, hm);
 		}
-		else if (mg_http_match_uri(hm, "/recordings/#"))
+		else if (mg_http_match_uri(hm, "/recordings") || mg_http_match_uri(hm, "/recordings/#"))
 		{
 			if (server->config.recording_path.empty())
 			{
@@ -85,7 +85,7 @@ void PiTvServer::server_http_handler(mg_connection* c, int ev, void* ev_data, vo
 			std::string auth_user = server->get_auth_username(hm);
 			if (auth_user.empty())
 			{
-				mg_http_reply(c, 401, "", "Unathorized");
+				mg_http_reply(c, 401, "WWW-Authenticate: Basic realm=\"Access to the logs\"", "Unathorized");
 				return;
 			}
 

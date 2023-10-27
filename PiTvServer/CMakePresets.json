@@ -47,7 +47,7 @@
       
     },
     {
-      "name": "linux-debug",
+      "name": "pi-debug",
       "displayName": "Linux Debug",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/out/build/${presetName}",
@@ -56,7 +56,28 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "MONGOOSE_ROOT": "~/software/mongoose",
         "BOOST_ROOT": "~/software/boost_1_83_0",
-        "SPDLOG_BUILD_ROOT": "~/software/spdlog/build"
+        "SPDLOG_ROOT": "~/software/spdlog/build"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioRemoteSettings/CMake/1.0": {
+          "sourceDir": "$env{HOME}/.vs/$ms{projectDirName}"
+        }
+      }
+    },
+    {
+      "name": "ubuntu-debug",
+      "displayName": "Linux Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MONGOOSE_ROOT": "~/software/mongoose"
       },
       "condition": {
         "type": "equals",

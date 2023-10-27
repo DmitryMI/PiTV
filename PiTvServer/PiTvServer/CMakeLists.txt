@@ -8,7 +8,7 @@ message(STATUS ${current_source_dir_name})
 
 project(${current_source_dir_name})
 
-add_executable (${PROJECT_NAME} "PiTvMain.cpp"  "PiTvServer.h" "PiTvServer.cpp" "video/Pipeline.h" "video/Pipeline.cpp" "accounts/UserDb.h" "accounts/UserDbCsv.h" "accounts/UserDbCsv.cpp" "accounts/UserDb.cpp" "SystemStats.h")
+add_executable (${PROJECT_NAME} "src/PiTvMain.cpp"  "src/PiTvServer.h" "src/PiTvServer.cpp" "src/video/Pipeline.h" "src/video/Pipeline.cpp" "src/accounts/UserDb.h" "src/accounts/UserDbCsv.h" "src/accounts/UserDbCsv.cpp" "src/accounts/UserDb.cpp" "src/SystemStats.h")
 
 set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -40,7 +40,11 @@ target_link_libraries(${PROJECT_NAME}
 # OpenSSL
 set(OPENSSL_USE_STATIC_LIBS TRUE)
 find_package(OpenSSL REQUIRED)
-target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::applink)
+
+if(WIN32)
+	target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::applink)
+endif()
+
 target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 
 # Mongoose
@@ -62,7 +66,7 @@ target_compile_definitions(${PROJECT_NAME} PUBLIC MG_TLS=MG_TLS_OPENSSL)
 
 # Boost
 set(Boost_USE_STATIC_LIBS ON)
-find_package( Boost 1.80 REQUIRED COMPONENTS program_options)
+find_package( Boost 1.70 REQUIRED COMPONENTS program_options)
 target_include_directories(${PROJECT_NAME} PRIVATE ${Boost_INCLUDE_DIR} )
 target_link_libraries( ${PROJECT_NAME} PRIVATE ${Boost_LIBRARIES} )
 

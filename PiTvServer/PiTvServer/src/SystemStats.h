@@ -81,7 +81,7 @@ double system_stats_get_cpu_process()
 #include <stdio.h>
 #include <string.h>
 #include <sys/times.h>
-#include <sys/vtimes.h>
+// #include <sys/vtimes.h>
 
 
 static unsigned long long lastTotalUser, lastTotalUserLow, lastTotalSys, lastTotalIdle;
@@ -205,14 +205,26 @@ double system_stats_get_cpu_process()
 #include <iostream>
 #include <memory>
 #include <vector>
+#include <boost/algorithm/string.hpp>
 
 bool system_stats_has_temp_cpu()
 {
 #if CM_WIN32
     return false;
 #endif
+    std::array<char, 128> buffer;
+    std::string result;
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen("vcgencmd measure_temp", "r"), pclose);
+    if (!pipe)
+    {
+        throw std::runtime_error("popen() failed!");
+    }
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr)
+    {
+        result += buffer.data();
+    }
 
-    return true;
+    return !result.empty() && !boost::algorithm::contains(result, "not found");
 }
 
 std::vector<std::string> split(const std::string& s, char seperator)
