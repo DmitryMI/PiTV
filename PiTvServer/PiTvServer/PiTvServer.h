@@ -22,6 +22,7 @@ struct PiTvServerConfig
 
     std::string pitv_mount_point = "/camera";
     std::string recording_path;
+    std::string logging_path;
 
     std::string user_db;
     int user_max_leases = 1;

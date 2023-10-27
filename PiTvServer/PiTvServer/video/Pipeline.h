@@ -140,10 +140,13 @@ public:
 	}
 
 	bool splitmux_split_after();
+	bool splitmux_split_now();
 
 	static void print_pipeline_elements_state(GstElement* element, int indent_level, std::stringstream* msg_builder);
 
 	void log_pipeline_elements_state() const;
 
 	void set_config(const PipelineConfig& config);
+
+	bool get_pipeline_state(GstState& state_current, GstState& state_pending, uint64_t timeout_msec) const;
 };

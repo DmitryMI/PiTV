@@ -5,7 +5,7 @@ recording-segment-duration = 3600
 recording-max-size = 32000
 
 # Directory to store recordings
-recording-path = ~/pitv/recordings
+recording-path = ~/files/pitv/recordings
 
 # Output dimensions
 video-width = 640
@@ -16,7 +16,7 @@ video-fps-numerator = 20
 video-fps-denominator = 1
 
 # Directory for logging
-log-dir = ~/pitv/logs
+log-dir = ~/files/pitv/logs
 
 # HTTP server will listen to this address. You can specify multiple entries
 # e.g. to bind to different network interfaces
@@ -24,14 +24,14 @@ listen = https://0.0.0.0:8080
 # listen = https://10.10.0.1:8090
 
 # TLS Certificate Authority. If set, clients' certificated will be validated against it
-tls-ca = ~/pitv/keys/ca.pem
+tls-ca = ~/keys/ca.pem
 
 # Server's public and private keys. Both must be set to enable https.
-tls-pub = ~/pitv/keys/pitv-server.pem
-tls-key = ~/pitv/keys/pitv-server.key
+tls-pub = ~/keys/pitv-server.pem
+tls-key = ~/keys/pitv-server.key
 
 # CSV file in format user,password,role for HTTP authentication
-user-db = ~/pitv/userdb.txt
+user-db = ~/files/pitv/userdb.txt
 
 # If true, non-existing output directories will be created. If false, app will
 # exit with an error, if output directory does not exist.

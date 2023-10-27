@@ -311,12 +311,6 @@ bool Pipeline::stop_pipeline()
 		return false;
 	}
 
-	if (!is_pipeline_running())
-	{
-		logger()->warn("stop_pipeline() called for not running pipeline!");
-		return true;
-	}
-
 	GstStateChangeReturn set_state_code = gst_element_set_state(gst_pipeline, GST_STATE_NULL);
 
 	if (set_state_code == GST_STATE_CHANGE_FAILURE)
@@ -325,7 +319,7 @@ bool Pipeline::stop_pipeline()
 		return false;
 	}
 
-	logger()->info("Pipeline successfully set to PAUSED state with result code: %d", set_state_code);
+	logger()->info("Pipeline successfully set to NULL state with result code: {}", set_state_code);
 	return true;
 }
 
@@ -530,6 +524,26 @@ bool Pipeline::rtp_change_endpoint(std::string host_old, int port_old, std::stri
 	return true;
 }
 
+bool Pipeline::splitmux_split_now()
+{
+	if (!gst_pipeline)
+	{
+		logger()->error("splitmux_split_now() called for not constructed pipeline!");
+		return false;
+	}
+
+	GstElement* splitmux = gst_bin_get_by_name(GST_BIN(gst_pipeline), "splitmuxsink");
+	if (!splitmux)
+	{
+		logger()->error("splitmux_split_now() failed to find the splitmuxsink in pipeline {}!", GST_ELEMENT_NAME(gst_pipeline));
+		return false;
+	}
+
+	g_signal_emit_by_name(splitmux, "split-now");
+	logger()->info("split-now called!");
+	return true;
+}
+
 bool Pipeline::splitmux_split_after()
 {
 	if (!gst_pipeline)
@@ -556,6 +570,24 @@ void Pipeline::set_config(const PipelineConfig& config)
 	this->config = config;
 
 	// Video caps not updated on a constructed pipeline!
+}
+
+bool Pipeline::get_pipeline_state(GstState& state_current, GstState& state_pending, uint64_t timeout_msec) const
+{
+	if (!gst_pipeline)
+	{
+		config.logger_ptr->error("[get_pipeline_state] Called for not constructed pipeline!");
+		return false;
+	}
+
+	GstStateChangeReturn state_ret = gst_element_get_state(gst_pipeline, &state_current, &state_pending, timeout_msec * GST_MSECOND);
+	if (state_ret != GstStateChangeReturn::GST_STATE_CHANGE_SUCCESS)
+	{
+		config.logger_ptr->error("[get_pipeline_state] Failed to get pipeline's state");
+		return false;
+	}
+
+	return true;
 }
 
 Pipeline::Pipeline(const PipelineConfig& config)
@@ -717,7 +749,8 @@ GstElement* Pipeline::make_capturing_subpipe()
 		if (!source)
 		{
 			logger()->error("Failed to create bin from user-specified videosource string: {}", config.videosource_override);
-			return false;
+			gst_object_unref(bin);
+			return nullptr;
 		}
 		gst_bin_add(GST_BIN(bin), source);
 	}
@@ -962,7 +995,7 @@ bool Pipeline::pause_pipeline()
 		return false;
 	}
 
-	logger()->info("Pipeline successfully set to PAUSED state with result code: %d", set_state_code);
+	logger()->info("Pipeline successfully set to PAUSED state with result code: {}", set_state_code);
 	return true;
 }
 

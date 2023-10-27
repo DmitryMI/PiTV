@@ -20,6 +20,7 @@
 
 #ifdef CM_UNIX
 #include <csignal>
+#include <pwd.h>
 #endif
 
 namespace po = boost::program_options;
@@ -28,7 +29,8 @@ static std::shared_ptr<Pipeline> pipeline;
 static std::shared_ptr<PiTvServer> server;
 static std::atomic<bool> should_terminate = false;
 static std::atomic<bool> should_reload = false;
-static std::atomic<int> exit_code = 0;
+
+const static std::string service_filename = "pitv-server.service";
 
 #ifdef CM_UNIX
 void signal_handler(int signum)
@@ -37,8 +39,8 @@ void signal_handler(int signum)
 	switch (signum)
 	{
 	case SIGTERM:
+	case SIGINT:
 		should_terminate.store(true);
-		exit_code.store(signum);
 		break;
 	case SIGHUP:
 		should_reload.store(true);
@@ -47,6 +49,63 @@ void signal_handler(int signum)
 
 }
 #endif
+
+std::filesystem::path get_home_dir()
+{
+#ifdef CM_UNIX
+	char* homedir;
+	if ((homedir = getenv("HOME")) == NULL)
+	{
+		homedir = getpwuid(getuid())->pw_dir;
+	}
+
+	return std::filesystem::path(homedir);
+#elif CM_WIN32
+	char* userprofile = getenv("USERPROFILE");
+	if (userprofile == NULL)
+	{
+		return "C:/";
+	}
+
+	return std::filesystem::path(userprofile);
+#endif
+}
+
+std::filesystem::path get_service_installation_dir()
+{
+	std::filesystem::path home = get_home_dir();
+	std::filesystem::path path = home / ".config" / "systemd" / "user";
+	return path;
+}
+
+std::filesystem::path get_service_installation_path()
+{
+	return get_service_installation_dir() / service_filename;
+}
+
+std::string fix_path(std::string_view path_str)
+{
+	if (path_str.starts_with("~/"))
+	{
+		path_str.remove_prefix(2);
+
+		auto home = get_home_dir();
+		return (home / path_str).string();
+	}
+
+	if (path_str.starts_with("./"))
+	{
+		path_str.remove_prefix(2);
+	}
+
+	std::filesystem::path path(path_str);
+	if (path.is_relative())
+	{
+		return std::filesystem::absolute(path).string();
+	}
+	
+	return std::string(path_str);
+}
 
 bool get_log_fullname(std::string dir_name, std::string filename, bool force_mkdirs, std::string& out_filename)
 {
@@ -87,8 +146,11 @@ std::shared_ptr<spdlog::sinks::rotating_file_sink_mt> create_rotating_log_sink(s
 	std::string filepath;
 	if (!get_log_fullname(dir_name, file_name, force_mkdirs, filepath))
 	{
+		std::cerr << "Failed to create rotating_file_sink_mt for dir_name " << dir_name << " and file_name " << file_name << std::endl;
 		return nullptr;
 	}
+
+	std::cout << "Created rotating_file_sink_mt with path " << filepath << std::endl;
 	auto rotating_file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(filepath, size, files_num);
 	return rotating_file_sink;
 }
@@ -173,9 +235,9 @@ int uninstall_service()
 	{
 		const std::string service_filename = "pitv-server.service";
 
-		const std::filesystem::path system_path = "/etc/systemd/system/";
+		const std::filesystem::path installation_dir = get_service_installation_dir();
 
-		std::string path_service_out = system_path / service_filename;
+		std::string path_service_out = get_service_installation_path().string();
 
 		if (std::filesystem::exists(path_service_out))
 		{
@@ -201,6 +263,16 @@ int install_service(std::string_view path_executable_str, std::string_view confi
 {
 	try
 	{
+		if (path_executable_str.starts_with("./"))
+		{
+			path_executable_str.remove_prefix(2);
+		}
+
+		if (config_path_str.starts_with("./"))
+		{
+			config_path_str.remove_prefix(2);
+		}
+
 		std::filesystem::path path_executable(path_executable_str);
 		if (path_executable.is_relative())
 		{
@@ -213,8 +285,6 @@ int install_service(std::string_view path_executable_str, std::string_view confi
 			path_config = std::filesystem::absolute(path_config);
 		}
 
-		const std::string service_filename = "pitv-server.service";
-
 		std::filesystem::path path_service_in = path_executable.parent_path() / service_filename;
 
 		if (!std::filesystem::exists(path_service_in))
@@ -223,9 +293,20 @@ int install_service(std::string_view path_executable_str, std::string_view confi
 			return 1;
 		}
 
-		const std::filesystem::path system_path = "/etc/systemd/system/";
+		const std::filesystem::path installation_dir = get_service_installation_dir();
 
-		std::string path_service_out = system_path / service_filename;
+		if (!std::filesystem::exists(installation_dir))
+		{
+			if (!std::filesystem::create_directories(installation_dir))
+			{
+				std::cerr << "Access denied" << std::endl;
+				return 1;
+			}
+
+			std::cout << "Created directory " << installation_dir.string() << std::endl;
+		}
+
+		auto path_service_out = get_service_installation_path();
 
 		if (std::filesystem::exists(path_service_out))
 		{
@@ -234,6 +315,7 @@ int install_service(std::string_view path_executable_str, std::string_view confi
 				std::cerr << "Access denied" << std::endl;
 				return 1;
 			}
+			std::cout << "Removed file " << path_service_out.string() << std::endl;
 		}
 
 		std::string exec_cmd = path_executable.string();
@@ -268,6 +350,8 @@ int install_service(std::string_view path_executable_str, std::string_view confi
 			return 1;
 		}
 
+		std::cout << "Created new file " << path_service_out.string() << std::endl;
+
 		std::cout << "Service installed successfully" << std::endl;
 		return 0;
 	}
@@ -293,12 +377,12 @@ po::options_description create_options_description()
 		("service-uninstall", "uninstall PiTV .service file")
 		("config", po::value<std::string>(), "path to config file")
 		("user-db", po::value<std::string>()->default_value("usernames.txt"), "Path to CSV file in format username,password,role")
-		("tls-ca", po::value<std::string>()->default_value("ca.crt"), "Path to CA for TLS support")
-		("tls-pub", po::value<std::string>()->default_value("server.crt"), "Path to server public key for TLS support")
-		("tls-key", po::value<std::string>()->default_value("server.key"), "Path to server private key for TLS support")
+		("tls-ca", po::value<std::string>(), "Path to CA for TLS support")
+		("tls-pub", po::value<std::string>(), "Path to server public key for TLS support")
+		("tls-key", po::value<std::string>(), "Path to server private key for TLS support")
 		("log-dir", po::value<std::string>()->default_value("logs"), "logging directory")
 		("log-level", po::value<std::string>()->default_value("INFO"), "logging level")
-		("force-mkdirs", po::value<bool>()->default_value(true), "create missing directories")
+		("force-mkdirs", po::value<bool>()->default_value(false), "create missing directories")
 		("listen", po::value<std::vector<std::string>>()->multitoken(), "add listening IP address for HTTP server")
 		("videosource", po::value<std::string>()->default_value(""), "overrides gstreamer video source pipeline factory")
 		("video-width", po::value<int>()->default_value(640), "video width")
@@ -319,17 +403,21 @@ bool read_configuration(int argc, char** argv, const po::options_description& de
 	{
 		if (vm.count("config"))
 		{
-			std::string config_path = vm["config"].as<std::string>();
+			std::string config_path_str = fix_path(vm["config"].as<std::string>());
+			std::filesystem::path config_path(config_path_str);
 			if (!std::filesystem::exists(config_path))
 			{
 				std::cerr << "Config file " << config_path << " not found." << std::endl;
 			}
 			else
 			{
-				po::store(po::parse_config_file(config_path.c_str(), desc), vm);
-				std::filesystem::path path(config_path);
+				std::cout << "Using config file " << config_path << std::endl;
 
-				std::filesystem::current_path(path.parent_path());
+				po::store(po::parse_config_file(config_path.string().c_str(), desc), vm);
+
+				std::filesystem::path working_dir = config_path.parent_path();
+				std::cout << "Changing working directory to " << working_dir << std::endl;
+				std::filesystem::current_path(working_dir);
 			}
 		}
 
@@ -346,7 +434,7 @@ bool read_configuration(int argc, char** argv, const po::options_description& de
 
 	bool force_mkdirs = vm["force-mkdirs"].as<bool>();
 	std::string log_level = vm["log-level"].as<std::string>();
-	if (!setup_logging(vm["log-dir"].as<std::string>(), log_level, force_mkdirs, pipeline_logger_ptr, http_logger_ptr))
+	if (!setup_logging(fix_path(vm["log-dir"].as<std::string>()), log_level, force_mkdirs, pipeline_logger_ptr, http_logger_ptr))
 	{
 		return false;
 	}
@@ -356,7 +444,7 @@ bool read_configuration(int argc, char** argv, const po::options_description& de
 
 	pipeline_config.logger_ptr = pipeline_logger_ptr;
 	pipeline_config.force_mkdirs = force_mkdirs;
-	pipeline_config.recording_path = vm["recording-path"].as<std::string>();
+	pipeline_config.recording_path = fix_path(vm["recording-path"].as<std::string>());
 	pipeline_config.videosource_override = vm["videosource"].as<std::string>();
 	pipeline_config.video_width = vm["video-width"].as<int>();
 	pipeline_config.video_height = vm["video-height"].as<int>();
@@ -367,11 +455,43 @@ bool read_configuration(int argc, char** argv, const po::options_description& de
 
 	populate_listen_addresses(server_config, vm);
 	server_config.logger_ptr = http_logger_ptr;
-	server_config.recording_path = vm["recording-path"].as<std::string>();
-	server_config.user_db = vm["user-db"].as<std::string>();
-	server_config.tls_ca_path = vm["tls-ca"].as<std::string>();
-	server_config.tls_pub_path = vm["tls-pub"].as<std::string>();
-	server_config.tls_key_path = vm["tls-key"].as<std::string>();
+	server_config.recording_path = fix_path(vm["recording-path"].as<std::string>());
+	server_config.logging_path = fix_path(vm["log-dir"].as<std::string>());
+	server_config.user_db = fix_path(vm["user-db"].as<std::string>());
+
+	if (vm.count("tls-ca"))
+	{
+		server_config.tls_ca_path = fix_path(vm["tls-ca"].as<std::string>());
+	}
+	if (vm.count("tls-pub"))
+	{
+		server_config.tls_pub_path = fix_path(vm["tls-pub"].as<std::string>());
+	}
+	if (vm.count("tls-key"))
+	{
+		server_config.tls_key_path = fix_path(vm["tls-key"].as<std::string>());
+	}
+
+	return true;
+}
+
+bool wait_for_pipeline_state(GstState state, int poll_period = 100, int max_iterations = 100, int poll_timeout = 1000)
+{
+	int iteration = 0;
+	GstState state_current, state_pending;
+	do
+	{
+		spdlog::info("Waiting for the pipeline to change state to {} ({})...", gst_element_state_get_name(state), iteration);
+
+		if (!pipeline->get_pipeline_state(state_current, state_pending, poll_timeout))
+		{
+			return false;
+		}
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(poll_period));
+		iteration++;
+	}
+	while (state_current != state && iteration < max_iterations);
 
 	return true;
 }
@@ -379,7 +499,12 @@ bool read_configuration(int argc, char** argv, const po::options_description& de
 int main(int argc, char** argv)
 {
 #ifdef CM_UNIX
-	signal(SIGINT, signal_handler);
+	// signal(SIGINT, signal_handler);
+	struct sigaction sig_action;
+	sig_action.sa_handler = signal_handler;
+	sigaction(SIGTERM, &sig_action, NULL);
+	sigaction(SIGHUP, &sig_action, NULL);
+	sigaction(SIGINT, &sig_action, NULL);
 #endif
 
 	PipelineConfig pipeline_config;
@@ -458,10 +583,24 @@ int main(int argc, char** argv)
 
 	if (pipeline->is_pipeline_running())
 	{
-		pipeline->splitmux_split_after();
+		// spdlog::info("Pipeline is still running, pausing pipeline...");
+		// pipeline->pause_pipeline();
+		spdlog::info("Calling splitmux_split()...");
+		pipeline->splitmux_split_now();
+		spdlog::info("Waiting for some time to let the splitmuxsink to finalize the last fragment...");
+		std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 	}
+	else
+	{
+		spdlog::info("Pipeline was not running, no need to call splitmux_split_now().");
+	}
+
 	pipeline->stop_pipeline();
+
+	wait_for_pipeline_state(GST_STATE_NULL);
+
 	pipeline.reset();
 
-	return exit_code.load();
+	spdlog::info("PiTVServer main() exits");
+	return 0;
 }
