@@ -1,4 +1,5 @@
 #include <fstream>
+#include <boost/algorithm/string/replace.hpp>
 #include "PiTvServer.h"
 #include "SystemStats.h"
 
@@ -50,10 +51,60 @@ void PiTvServer::server_http_handler(mg_connection* c, int ev, void* ev_data, vo
 		{
 			server->on_status_request(c, hm);
 		}
+		else if (mg_http_match_uri(hm, "/recordings") || mg_http_match_uri(hm, "/recordings/#"))
+		{
+			if (server->config.recording_path.empty())
+			{
+				mg_http_reply(c, 404, "", "Not found");
+				return;
+			}
+
+			std::string auth_user = server->get_auth_username(hm);
+			if (auth_user.empty())
+			{
+				mg_http_reply(c, 401, "WWW-Authenticate: Basic realm=\"Access to the recordings\"", "Unathorized");
+				return;
+			}
+
+			server->config.logger_ptr->info("Serving directory {}", server->config.recording_path);
+			mg_http_serve_opts opts = { 0 };
+			std::string root_dir_str = server->config.recording_path + ",/recordings=" + server->config.recording_path;
+			opts.root_dir = root_dir_str.c_str();
+			mg_http_serve_dir(c, hm, &opts);
+			return;
+
+		}
+		else if (mg_http_match_uri(hm, "/logs") || mg_http_match_uri(hm, "/logs/#"))
+		{
+			if (server->config.logging_path.empty())
+			{
+				mg_http_reply(c, 404, "", "Not found");
+				return;
+			}
+
+			std::string auth_user = server->get_auth_username(hm);
+			if (auth_user.empty())
+			{
+				mg_http_reply(c, 401, "WWW-Authenticate: Basic realm=\"Access to the logs\"", "Unathorized");
+				return;
+			}
+
+			auto user_entry = server->user_db->get_userdata(auth_user);
+			if (user_entry->role != "admin")
+			{
+				mg_http_reply(c, 403, "", "Forbidden");
+				return;
+			}
+
+			server->config.logger_ptr->info("Serving {} directory", server->config.logging_path);
+			mg_http_serve_opts opts = { 0 };
+			std::string root_dir_str = server->config.logging_path + ",/logs=" + server->config.logging_path;
+			opts.root_dir = root_dir_str.c_str();
+			mg_http_serve_dir(c, (mg_http_message*)ev_data, &opts);
+		}
 		else
 		{
-			struct mg_http_serve_opts opts = { .root_dir = server->config.recording_path.c_str() };
-			mg_http_serve_dir(c, (mg_http_message*)ev_data, &opts);
+			mg_http_reply(c, 404, "", "Not found");
 		}
 	}
 }
@@ -229,10 +280,10 @@ void PiTvServer::server_https_handler(mg_connection* c, int ev, void* ev_data, v
 	{
 		size_t size = 0;
 
-		struct mg_tls_opts opts = 
+		struct mg_tls_opts opts =
 		{
 			.cert = mg_str(server->tls_cert_value.c_str()),
-			.key = mg_str(server->tls_key_value.c_str()) 
+			.key = mg_str(server->tls_key_value.c_str())
 		};
 
 		if (!server->tls_ca_value.empty())

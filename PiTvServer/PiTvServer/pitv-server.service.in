@@ -1,6 +1,6 @@
 [Unit]
 Description=PiTV streaming and recording server
-After=multi-user.target
+After=default.target
 
 [Service]
 Type=exec
@@ -9,6 +9,7 @@ Restart=always
 RestartSec=10s
 KillMode=process
 TimeoutSec=120s
+ExecReload=/bin/kill -HUP $MAINPID
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

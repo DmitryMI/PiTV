@@ -10,7 +10,6 @@ struct PipelineConfig
 	std::shared_ptr<spdlog::logger> logger_ptr;
 	std::string recording_path = "Recordings";
 	bool force_mkdirs = true;
-	std::string camera_dev;
 	int video_width = 640;
 	int video_height = 640;
 	int video_fps_numerator = 20;
@@ -34,6 +33,7 @@ private:
 
 	std::shared_ptr<spdlog::logger> logger() const;
 
+	GstElement* make_capturing_subpipe(std::string bin_str);
 	GstElement* make_capturing_subpipe();
 	GstElement* make_recording_subpipe();
 	GstElement* make_streaming_subpipe();
@@ -141,10 +141,13 @@ public:
 	}
 
 	bool splitmux_split_after();
+	bool splitmux_split_now();
 
 	static void print_pipeline_elements_state(GstElement* element, int indent_level, std::stringstream* msg_builder);
 
 	void log_pipeline_elements_state() const;
 
 	void set_config(const PipelineConfig& config);
+
+	bool get_pipeline_state(GstState& state_current, GstState& state_pending, uint64_t timeout_msec) const;
 };

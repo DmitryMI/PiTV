@@ -199,7 +199,7 @@ void Pipeline::enforce_recording_max_size_restrictions(std::filesystem::path las
 	uintmax_t total_size = get_recording_total_size();
 	logger()->info("[enforce_recording_max_size_restrictions] total size of recordings: {} Mb", total_size / 1024 / 1024);
 
-	while(total_size >= (uintmax_t)config.recording_max_size * 1024UL * 1024UL && iteration < max_iterations)
+	while (total_size >= (uintmax_t)config.recording_max_size * 1024UL * 1024UL && iteration < max_iterations)
 	{
 		std::filesystem::path oldest_file = get_oldest_file();
 		if (oldest_file.empty())
@@ -243,7 +243,7 @@ void Pipeline::bus_poll(int timeout_msec)
 			GST_MESSAGE_INFO |
 			GST_MESSAGE_WARNING |
 			GST_MESSAGE_ERROR |
-			GST_MESSAGE_EOS | 
+			GST_MESSAGE_EOS |
 			GST_MESSAGE_STATE_CHANGED));
 
 	if (message)
@@ -311,12 +311,6 @@ bool Pipeline::stop_pipeline()
 		return false;
 	}
 
-	if (!is_pipeline_running())
-	{
-		logger()->warn("stop_pipeline() called for not running pipeline!");
-		return true;
-	}
-
 	GstStateChangeReturn set_state_code = gst_element_set_state(gst_pipeline, GST_STATE_NULL);
 
 	if (set_state_code == GST_STATE_CHANGE_FAILURE)
@@ -325,7 +319,7 @@ bool Pipeline::stop_pipeline()
 		return false;
 	}
 
-	logger()->info("Pipeline successfully set to PAUSED state with result code: %d", set_state_code);
+	logger()->info("Pipeline successfully set to NULL state with result code: {}", set_state_code);
 	return true;
 }
 
@@ -384,7 +378,7 @@ bool Pipeline::attach_rtp_bin(GstElement* element)
 	GstElement* tee = gst_bin_get_by_name(GST_BIN(gst_pipeline), "subpipes_tee");
 	if (!tee)
 	{
-		logger()->error("Failed to attach bin {} to pipeline {}, because tee with name '{}' was not found!", 
+		logger()->error("Failed to attach bin {} to pipeline {}, because tee with name '{}' was not found!",
 			GST_ELEMENT_NAME(element),
 			GST_ELEMENT_NAME(gst_pipeline),
 			"subpipes_tee");
@@ -409,7 +403,7 @@ bool Pipeline::attach_rtp_bin(GstElement* element)
 	}
 
 	logger()->info("Trying to sync {}'s state with the parent pipeline...", GST_ELEMENT_NAME(element));
-	
+
 	if (!gst_element_sync_state_with_parent(element))
 	{
 		logger()->error("Failed to sync {}'s state with parent!",
@@ -425,7 +419,7 @@ bool Pipeline::attach_rtp_bin(GstElement* element)
 		gst_bin_remove(GST_BIN(gst_pipeline), element);
 		return false;
 	}
-	
+
 	std::string dot_name = std::string("pipeline-attached");
 	GstDebugGraphDetails graph_details = static_cast<GstDebugGraphDetails>(
 		GST_DEBUG_GRAPH_SHOW_MEDIA_TYPE | GST_DEBUG_GRAPH_SHOW_CAPS_DETAILS | GST_DEBUG_GRAPH_SHOW_NON_DEFAULT_PARAMS);
@@ -530,6 +524,26 @@ bool Pipeline::rtp_change_endpoint(std::string host_old, int port_old, std::stri
 	return true;
 }
 
+bool Pipeline::splitmux_split_now()
+{
+	if (!gst_pipeline)
+	{
+		logger()->error("splitmux_split_now() called for not constructed pipeline!");
+		return false;
+	}
+
+	GstElement* splitmux = gst_bin_get_by_name(GST_BIN(gst_pipeline), "splitmuxsink");
+	if (!splitmux)
+	{
+		logger()->error("splitmux_split_now() failed to find the splitmuxsink in pipeline {}!", GST_ELEMENT_NAME(gst_pipeline));
+		return false;
+	}
+
+	g_signal_emit_by_name(splitmux, "split-now");
+	logger()->info("split-now called!");
+	return true;
+}
+
 bool Pipeline::splitmux_split_after()
 {
 	if (!gst_pipeline)
@@ -556,6 +570,24 @@ void Pipeline::set_config(const PipelineConfig& config)
 	this->config = config;
 
 	// Video caps not updated on a constructed pipeline!
+}
+
+bool Pipeline::get_pipeline_state(GstState& state_current, GstState& state_pending, uint64_t timeout_msec) const
+{
+	if (!gst_pipeline)
+	{
+		config.logger_ptr->error("[get_pipeline_state] Called for not constructed pipeline!");
+		return false;
+	}
+
+	GstStateChangeReturn state_ret = gst_element_get_state(gst_pipeline, &state_current, &state_pending, timeout_msec * GST_MSECOND);
+	if (state_ret != GstStateChangeReturn::GST_STATE_CHANGE_SUCCESS)
+	{
+		config.logger_ptr->error("[get_pipeline_state] Failed to get pipeline's state");
+		return false;
+	}
+
+	return true;
 }
 
 Pipeline::Pipeline(const PipelineConfig& config)
@@ -601,88 +633,92 @@ std::shared_ptr<spdlog::logger> Pipeline::logger() const
 	return config.logger_ptr;
 }
 
+
+GstElement* Pipeline::make_capturing_subpipe(std::string bin_str)
+{
+	logger()->info("Constructing pipeline from user-provided bin description: {}", config.videosource_override);
+	GstElement* bin = gst_parse_bin_from_description(bin_str.c_str(), true, NULL);
+	return bin;
+}
+
 GstElement* Pipeline::make_capturing_subpipe()
 {
+	if (!config.videosource_override.empty())
+	{
+		return make_capturing_subpipe(config.videosource_override);
+	}
+
 #ifdef CM_UNIX
 	GstElement* bin = gst_bin_new("video-source-bin");
 	assert(bin);
 
-	GstElement* source = nullptr;
-	if (config.videosource_overrider.empty())
+	GstElement* source = gst_element_factory_make("libcamerasrc", "libcamerasrc");
+
+	if (!source)
 	{
-		source = gst_element_factory_make("libcamerasrc", "libcamerasrc");
-		if (!source)
-		{
-			gst_object_unref(bin);
-			return nullptr;
-		}
-		gst_bin_add(GST_BIN(bin), source);
+		logger()->error("Failed to create videosource");
+		gst_object_unref(bin);
+		return nullptr;
 	}
-	else
-	{
-		source = gst_parse_bin_from_description(config.videosource_override.c_str(), true, NULL);
-		if (!source)
-		{
-			logger()->error("Failed to create bin from user-specified videosource string: {}", config.videosource_override);
-			return false;
-		}
-	}
+	gst_bin_add(GST_BIN(bin), source);
 
 	GstElement* encoder = gst_element_factory_make("v4l2h264enc", "v4l2h264enc");
+	GstStructure* encoder_extra = gst_structure_new("encoder_extra_controls",
+		"repeat_sequence_header", G_TYPE_INT, 1,
+		NULL
+	);
+	g_object_set(encoder, "extra-controls", encoder_extra, NULL);
+
+
 	if (!encoder)
 	{
+		logger()->error("Failed to create h264 encoder");
 		gst_object_unref(bin);
 		return nullptr;
 	}
 	gst_bin_add(GST_BIN(bin), encoder);
 
-	GstStructure* encoder_extra = gst_structure_new("encoder_extra_controls",
-		"repeat_sequence_header", G_TYPE_INT, 1,
-		NULL
-	);
 
-	g_object_set(encoder, "extra-controls", encoder_extra, NULL);
-
-	GstElement* encoder_capsfilter = gst_element_factory_make("capsfilter", "encoder_caps");
-	if (!encoder_capsfilter)
+	GstElement* src_enc_capsfilter = gst_element_factory_make("capsfilter", "encoder_caps");
+	if (!src_enc_capsfilter)
 	{
 		gst_object_unref(bin);
 		return nullptr;
 	}
-	gst_bin_add(GST_BIN(bin), encoder_capsfilter);
+	gst_bin_add(GST_BIN(bin), src_enc_capsfilter);
 
-	GstCaps* source_caps = gst_caps_new_simple("video/x-raw",
+	GstCaps* src_enc_caps = gst_caps_new_simple("video/x-raw",
 		"width", G_TYPE_INT, config.video_width,
 		"height", G_TYPE_INT, config.video_height,
 		"framerate", GST_TYPE_FRACTION, config.video_fps_numerator, config.video_fps_denominator,
 		"format", G_TYPE_STRING, "YUY2",
 		"interlace-mode", G_TYPE_STRING, "progressive",
-
 		NULL);
 
-	if (!gst_element_link_filtered(source, encoder, source_caps))
+
+	if (!gst_element_link_filtered(source, encoder, src_enc_caps))
 	{
 		GST_ERROR("Failed to link %s and %s!", GST_ELEMENT_NAME(source), GST_ELEMENT_NAME(encoder));
 		gst_object_unref(bin);
 		return nullptr;
 	}
-	gst_caps_unref(source_caps);
+	gst_caps_unref(src_enc_caps);
 
 	GstCaps* encoder_caps = gst_caps_new_simple(
 		"video/x-h264",
 		"level", G_TYPE_STRING, "3.1",
 		// "profile", G_TYPE_STRING, "constrained-baseline",
 		NULL);
-	g_object_set(encoder_capsfilter, "caps", encoder_caps, NULL);
-	if (!gst_element_link(encoder, encoder_capsfilter))
+	g_object_set(src_enc_capsfilter, "caps", encoder_caps, NULL);
+	if (!gst_element_link(encoder, src_enc_capsfilter))
 	{
-		GST_ERROR("Failed to link %s and %s!", GST_ELEMENT_NAME(encoder), GST_ELEMENT_NAME(encoder_capsfilter));
+		GST_ERROR("Failed to link %s and %s!", GST_ELEMENT_NAME(encoder), GST_ELEMENT_NAME(src_enc_capsfilter));
 		gst_object_unref(bin);
 		return nullptr;
 	}
 	gst_caps_unref(encoder_caps);
 
-	GstPad* encoder_capsfilter_src_pad = gst_element_get_static_pad(encoder_capsfilter, "src");
+	GstPad* encoder_capsfilter_src_pad = gst_element_get_static_pad(src_enc_capsfilter, "src");
 	GstPad* src_ghost_pad = gst_ghost_pad_new("src", encoder_capsfilter_src_pad);
 
 	gst_element_add_pad(bin, src_ghost_pad);
@@ -715,8 +751,10 @@ GstElement* Pipeline::make_capturing_subpipe()
 		if (!source)
 		{
 			logger()->error("Failed to create bin from user-specified videosource string: {}", config.videosource_override);
-			return false;
+			gst_object_unref(bin);
+			return nullptr;
 		}
+		gst_bin_add(GST_BIN(bin), source);
 	}
 
 	GstElement* encoder = gst_element_factory_make("x264enc", "x264enc");
@@ -728,7 +766,7 @@ GstElement* Pipeline::make_capturing_subpipe()
 	}
 	g_object_set(encoder, "tune", 4, NULL);
 	gst_bin_add(GST_BIN(bin), encoder);
-	
+
 	GstCaps* source_caps = gst_caps_new_simple("video/x-raw",
 		"width", G_TYPE_INT, config.video_width,
 		"height", G_TYPE_INT, config.video_height,
@@ -747,7 +785,7 @@ GstElement* Pipeline::make_capturing_subpipe()
 
 	gst_element_add_pad(bin, src_ghost_pad);
 	g_object_unref(encoder_src_pad);
-	
+
 	return bin;
 
 #else
@@ -867,7 +905,7 @@ bool Pipeline::construct_pipeline()
 		return false;
 	}
 	gst_bin_add(GST_BIN(pipeline_tmp), recording_bin);
-	
+
 	if (!gst_element_link_many(video_capturing_bin, subpipes_tee, recording_bin, NULL))
 	{
 		logger()->error("Failed to link pipeline elements!");
@@ -959,7 +997,7 @@ bool Pipeline::pause_pipeline()
 		return false;
 	}
 
-	logger()->info("Pipeline successfully set to PAUSED state with result code: %d", set_state_code);
+	logger()->info("Pipeline successfully set to PAUSED state with result code: {}", set_state_code);
 	return true;
 }
 
@@ -1030,6 +1068,6 @@ void Pipeline::log_pipeline_elements_state() const
 			print_pipeline_elements_state(element, level, &elements_status_builder);
 		}
 	);
-	
+
 	logger()->debug(elements_status_builder.str());
 }
