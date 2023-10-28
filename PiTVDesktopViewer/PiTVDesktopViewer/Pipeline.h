@@ -13,7 +13,7 @@ private:
 
 private:
 	void handle_pipeline_message(GstMessage* msg);
-
+	bool constructPipeline(QString pipelineStr);
 public:
 	Pipeline(int port, WId windowHandle);
 	~Pipeline();
@@ -21,6 +21,7 @@ public:
 	Pipeline(const Pipeline& copy) = delete;
 	Pipeline() = delete;
 
+	
 	bool constructPipeline();
 
 	void setPort(int port);
