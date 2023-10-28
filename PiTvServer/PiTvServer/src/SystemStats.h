@@ -211,7 +211,7 @@ bool system_stats_has_temp_cpu()
 {
 #if CM_WIN32
     return false;
-#endif
+#else
     std::array<char, 128> buffer;
     std::string result;
     std::unique_ptr<FILE, decltype(&pclose)> pipe(popen("vcgencmd measure_temp", "r"), pclose);
@@ -225,6 +225,7 @@ bool system_stats_has_temp_cpu()
     }
 
     return !result.empty() && !boost::algorithm::contains(result, "not found");
+#endif
 }
 
 std::vector<std::string> split(const std::string& s, char seperator)
