@@ -562,6 +562,12 @@ std::pair<int, std::string> PiTvServer::lease_camera(std::string& guid, std::str
 		lease_time_msec = max_lease_time_msec;
 	}
 
+	if (user.lease_map.count(guid) == 0)
+	{
+		config.logger_ptr->warn("Lease request: user {} requests non-existing GUID {}. Requesting new lease instead.", username, guid);
+		guid = "";
+	}
+
 	if (guid.empty())
 	{
 		if (user.lease_map.size() >= config.user_max_leases)
@@ -591,12 +597,6 @@ std::pair<int, std::string> PiTvServer::lease_camera(std::string& guid, std::str
 	}
 	else
 	{
-		if (user.lease_map.count(guid) == 0)
-		{
-			config.logger_ptr->error("Lease request failed: user {} requests non-existing GUID {}", username, guid);
-			return { 400, "Non-existing GUID specified" };
-		}
-
 		LeaseEntry& lease_entry = user.lease_map[guid];
 		lease_entry.lease_end_time = current_uptime + lease_time_msec;
 		if (lease_entry.udp_host != host || lease_entry.udp_port != port)
