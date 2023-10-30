@@ -125,12 +125,16 @@ static void state_changed_cb (GstBus * bus, GstMessage * msg, CustomData * data)
     GstState old_state, new_state, pending_state;
     gst_message_parse_state_changed (msg, &old_state, &new_state, &pending_state);
     /* Only pay attention to messages coming from the pipeline, not its children */
-    if (GST_MESSAGE_SRC (msg) == GST_OBJECT (data->pipeline)) {
-        gchar *message = g_strdup_printf ("State changed to %s",
-                                          gst_element_state_get_name (new_state));
+    GstObject* sender = GST_MESSAGE_SRC (msg);
+    gchar *message = g_strdup_printf ("%s: state changed to %s",
+                                      GST_ELEMENT_NAME(sender),
+                                      gst_element_state_get_name (new_state));
+    GST_DEBUG("%s", message);
+    if (GST_MESSAGE_SRC (msg) == GST_OBJECT (data->pipeline))
+    {
         set_ui_message (message, data);
-        g_free (message);
     }
+    g_free (message);
 }
 
 /* Check if all conditions are met to report GStreamer as initialized.
@@ -173,7 +177,7 @@ static void *app_function (void *userdata)
 
     /* Build pipeline */
     data->pipeline =
-            gst_parse_launch ("udpsrc name=udpsrc ! application/x-rtp,clock-rate=90000,payload=96 ! rtph264depay ! decodebin ! autovideosink", &error);
+            gst_parse_launch ("udpsrc name=udpsrc ! application/x-rtp,clock-rate=90000,payload=96 ! rtph264depay ! avdec_h264 ! autovideosink", &error);
     if (error)
     {
         gchar *message =
@@ -266,7 +270,14 @@ static void gst_native_play (JNIEnv * env, jobject thiz)
     if (!data)
         return;
     GST_DEBUG ("Setting state to PLAYING");
-    gst_element_set_state (data->pipeline, GST_STATE_PLAYING);
+    GstStateChangeReturn ret = gst_element_set_state (data->pipeline, GST_STATE_PLAYING);
+    if(ret == GstStateChangeReturn::GST_STATE_CHANGE_FAILURE)
+    {
+        GST_ERROR("Failed to change pipeline state to PLAYING");
+    } else
+    {
+        GST_DEBUG("Request to change pipeline state to PLAING succeeded with code %d", ret);
+    }
 }
 
 static void gst_native_set_udp_port(JNIEnv * env, jobject thiz, int port)
