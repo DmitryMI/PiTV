@@ -1,5 +1,5 @@
-﻿set(OPENSSL_ROOT "C:/FilesAndFolders/mongoose" CACHE STRING "Path to Mongoose Server source code")
-set(MONGOOSE_ROOT "C:/FilesAndFolders/OpenSSL-Win64" CACHE STRING "Path to OpenSSL installation")
+﻿set(MONGOOSE_ROOT "C:/FilesAndFolders/mongoose" CACHE STRING "Path to Mongoose Server source code")
+set(OPENSSL_ROOT "C:/FilesAndFolders/OpenSSL-Win64" CACHE STRING "Path to OpenSSL installation")
 set(BOOST_ROOT "C:/FilesAndFolders/boost_1_80_0" CACHE STRING "Path to boost source code")
 set(SPDLOG_ROOT "C:/FilesAndFolders/spdlog/build" CACHE STRING "Path to spdlog build")
 
